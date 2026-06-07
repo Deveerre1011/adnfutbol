@@ -3579,6 +3579,7 @@ function SuperAdminPortal({
   const [userTab, setUserTab] = useState<'directorio' | 'gestion'>('directorio')
   const [expandedUserSchoolId, setExpandedUserSchoolId] = useState(schools[0]?.id ?? '')
   const [userSearchTerm, setUserSearchTerm] = useState('')
+  const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
   const managedUsers = users.filter((user) => user.role !== 'SuperAdmin')
   const blockedAccounts = managedUsers.filter((user) => user.status === 'Bloqueado').length
   const pendingAccounts = managedUsers.filter((user) => user.status === 'Pendiente').length
@@ -3830,76 +3831,20 @@ function SuperAdminPortal({
 
       {section === 'usuarios' && (
         <section className="superadmin-single">
-
-          {/* ── Formulario crear usuario ── */}
-          <article className="panel">
+          <article className="panel superadmin-action-panel">
             <div className="panel-header">
               <div>
                 <span className="panel-kicker">Nuevo acceso</span>
-                <h2>Crear usuario</h2>
+                <h2>Crear usuario cuando lo necesites</h2>
+                <p>El formulario queda cerrado para mantener limpio el directorio.</p>
               </div>
-            </div>
-            <form className="user-inline-form" onSubmit={addUser}>
-              <label className="form-field">
-                <span>Nombre</span>
-                <input placeholder="Nombre completo" onChange={(event) => updateNewUserForm('name', event.target.value)} value={newUserForm.name} />
-              </label>
-              <label className="form-field">
-                <span>RUT</span>
-                <input placeholder="12345678-9" onChange={(event) => updateNewUserForm('rut', normalizeRut(event.target.value))} value={newUserForm.rut} />
-              </label>
-              <label className="form-field">
-                <span>Clave</span>
-                <input placeholder="Mínimo 4 caracteres" onChange={(event) => updateNewUserForm('password', event.target.value)} value={newUserForm.password} />
-              </label>
-              <label className="form-field">
-                <span>Rol</span>
-                <select onChange={(event) => updateNewUserForm('role', event.target.value as UserRole)} value={newUserForm.role}>
-                  <option value="Director">Admin escuela</option>
-                  <option value="DT">Profesor</option>
-                  <option value="Finanzas">Finanzas</option>
-                  <option value="Alumno">Alumno</option>
-                </select>
-              </label>
-              <label className="form-field">
-                <span>Escuela</span>
-                <select
-                  onChange={(event) => {
-                    const nextSchoolId = event.target.value
-                    const firstCategory = categories.find((category) => category.schoolId === nextSchoolId)?.label ?? 'Todas'
-                    updateNewUserForm('schoolId', nextSchoolId)
-                    updateNewUserForm('category', firstCategory)
-                  }}
-                  value={newUserForm.schoolId}
-                >
-                  {schools.map((school) => (
-                    <option key={school.id} value={school.id}>{school.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="form-field">
-                <span>Categoría</span>
-                <select onChange={(event) => updateNewUserForm('category', event.target.value)} value={newUserForm.category}>
-                  <option>Todas</option>
-                  {selectedSchoolCategories.map((category) => (
-                    <option key={category.id}>{category.label}</option>
-                  ))}
-                </select>
-              </label>
-              <button className="primary-button user-inline-submit" type="submit">
-                <UserCog size={16} aria-hidden="true" />
-                Crear
+              <button className="primary-button" onClick={() => setIsCreateUserOpen(true)} type="button">
+                <UserCog size={18} aria-hidden="true" />
+                Crear usuario
               </button>
-            </form>
-            {newUserForm.role === 'Director' && (
-              <p className="user-inline-hint">
-                <CheckCircle2 size={13} aria-hidden="true" />
-                El admin podrá ingresar con su RUT y la clave que definiste en <strong>{selectedSchool?.name}</strong>.
-              </p>
-            )}
+            </div>
           </article>
 
-          {/* ── Panel principal con subtabs ── */}
           <article className="panel">
             <div className="users-panel-header">
               <div>
