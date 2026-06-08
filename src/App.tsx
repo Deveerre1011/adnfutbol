@@ -2530,7 +2530,7 @@ function App() {
   function addSchoolUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (coach?.role !== 'Director') {
+    if (coach?.role !== 'Director' && coach?.role !== 'SuperAdmin') {
       setNotice('Solo el administrador de escuela puede crear usuarios de su escuela.')
       return
     }
@@ -2570,7 +2570,7 @@ function App() {
   function addCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (coach?.role !== 'Director') {
+    if (coach?.role !== 'Director' && coach?.role !== 'SuperAdmin') {
       setNotice('Solo el administrador de escuela puede crear categorias.')
       return
     }
@@ -2609,6 +2609,27 @@ function App() {
     setSelectedCategory(label)
     setAttendanceCategory(label)
     setNotice(`${label} fue creada para ${school.name}.`)
+  }
+
+  function deleteCategory(categoryId: string) {
+    if (coach?.role !== 'Director' && coach?.role !== 'SuperAdmin') {
+      setNotice('Solo el administrador de escuela puede borrar categorias.')
+      return
+    }
+
+    const target = categories.find((c) => c.id === categoryId)
+
+    if (!target) return
+
+    const hasStudents = students.some((s) => s.schoolId === school.id && s.category === target.label)
+
+    if (hasStudents) {
+      setNotice(`No puedes borrar "${target.label}" porque tiene alumnos asignados. Cambia su categoría primero.`)
+      return
+    }
+
+    setCategories((current) => current.filter((c) => c.id !== categoryId))
+    setNotice(`Categoría "${target.label}" eliminada.`)
   }
 
   function addExpense(event: FormEvent<HTMLFormElement>) {
@@ -3348,6 +3369,7 @@ function App() {
             addCategory={addCategory}
             addSchoolUser={addSchoolUser}
             categories={schoolCategories}
+            deleteCategory={deleteCategory}
             newCategoryForm={newCategoryForm}
             school={school}
             schoolUserForm={schoolUserForm}
@@ -3579,7 +3601,6 @@ function SuperAdminPortal({
   const [userTab, setUserTab] = useState<'directorio' | 'gestion'>('directorio')
   const [expandedUserSchoolId, setExpandedUserSchoolId] = useState(schools[0]?.id ?? '')
   const [userSearchTerm, setUserSearchTerm] = useState('')
-  const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
   const managedUsers = users.filter((user) => user.role !== 'SuperAdmin')
   const blockedAccounts = managedUsers.filter((user) => user.status === 'Bloqueado').length
   const pendingAccounts = managedUsers.filter((user) => user.status === 'Pendiente').length
@@ -3831,20 +3852,76 @@ function SuperAdminPortal({
 
       {section === 'usuarios' && (
         <section className="superadmin-single">
-          <article className="panel superadmin-action-panel">
+
+          {/* ── Formulario crear usuario ── */}
+          <article className="panel">
             <div className="panel-header">
               <div>
                 <span className="panel-kicker">Nuevo acceso</span>
-                <h2>Crear usuario cuando lo necesites</h2>
-                <p>El formulario queda cerrado para mantener limpio el directorio.</p>
+                <h2>Crear usuario</h2>
               </div>
-              <button className="primary-button" onClick={() => setIsCreateUserOpen(true)} type="button">
-                <UserCog size={18} aria-hidden="true" />
-                Crear usuario
-              </button>
             </div>
+            <form className="user-inline-form" onSubmit={addUser}>
+              <label className="form-field">
+                <span>Nombre</span>
+                <input placeholder="Nombre completo" onChange={(event) => updateNewUserForm('name', event.target.value)} value={newUserForm.name} />
+              </label>
+              <label className="form-field">
+                <span>RUT</span>
+                <input placeholder="12345678-9" onChange={(event) => updateNewUserForm('rut', normalizeRut(event.target.value))} value={newUserForm.rut} />
+              </label>
+              <label className="form-field">
+                <span>Clave</span>
+                <input placeholder="Mínimo 4 caracteres" onChange={(event) => updateNewUserForm('password', event.target.value)} value={newUserForm.password} />
+              </label>
+              <label className="form-field">
+                <span>Rol</span>
+                <select onChange={(event) => updateNewUserForm('role', event.target.value as UserRole)} value={newUserForm.role}>
+                  <option value="Director">Admin escuela</option>
+                  <option value="DT">Profesor</option>
+                  <option value="Finanzas">Finanzas</option>
+                  <option value="Alumno">Alumno</option>
+                </select>
+              </label>
+              <label className="form-field">
+                <span>Escuela</span>
+                <select
+                  onChange={(event) => {
+                    const nextSchoolId = event.target.value
+                    const firstCategory = categories.find((category) => category.schoolId === nextSchoolId)?.label ?? 'Todas'
+                    updateNewUserForm('schoolId', nextSchoolId)
+                    updateNewUserForm('category', firstCategory)
+                  }}
+                  value={newUserForm.schoolId}
+                >
+                  {schools.map((school) => (
+                    <option key={school.id} value={school.id}>{school.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-field">
+                <span>Categoría</span>
+                <select onChange={(event) => updateNewUserForm('category', event.target.value)} value={newUserForm.category}>
+                  <option>Todas</option>
+                  {selectedSchoolCategories.map((category) => (
+                    <option key={category.id}>{category.label}</option>
+                  ))}
+                </select>
+              </label>
+              <button className="primary-button user-inline-submit" type="submit">
+                <UserCog size={16} aria-hidden="true" />
+                Crear
+              </button>
+            </form>
+            {newUserForm.role === 'Director' && (
+              <p className="user-inline-hint">
+                <CheckCircle2 size={13} aria-hidden="true" />
+                El admin podrá ingresar con su RUT y la clave que definiste en <strong>{selectedSchool?.name}</strong>.
+              </p>
+            )}
           </article>
 
+          {/* ── Panel principal con subtabs ── */}
           <article className="panel">
             <div className="users-panel-header">
               <div>
@@ -5623,6 +5700,8 @@ function BalancePage({
     .reduce((total, expense) => total + Number(expense.amount.replace(/\D/g, '')), 0)
   const result = paidIncome + manualIncome - paidExpenses
 
+  const [balanceTab, setBalanceTab] = useState<'registrar' | 'mensualidades' | 'ingresos' | 'egresos'>('registrar')
+
   return (
     <section className="balance-page">
       <section className="finance-grid">
@@ -5646,6 +5725,18 @@ function BalancePage({
         </article>
       </section>
 
+      <SectionTabs
+        value={balanceTab}
+        onChange={(v) => setBalanceTab(v as typeof balanceTab)}
+        tabs={[
+          { id: 'registrar', label: 'Registrar movimiento' },
+          { id: 'mensualidades', label: `Mensualidades (${payments.length})` },
+          { id: 'ingresos', label: `Ingresos manuales (${incomes.length})` },
+          { id: 'egresos', label: `Egresos (${expenses.length})` },
+        ]}
+      />
+
+      {balanceTab === 'registrar' && (
       <article className="panel movement-entry-panel">
         <div className="panel-header">
           <div>
@@ -5669,10 +5760,7 @@ function BalancePage({
               <select
                 onChange={(event) => {
                   updateNewIncomeForm('category', event.target.value)
-
-                  if (event.target.value !== 'Otro') {
-                    updateNewIncomeForm('categoryDetail', '')
-                  }
+                  if (event.target.value !== 'Otro') updateNewIncomeForm('categoryDetail', '')
                 }}
                 value={newIncomeForm.category}
               >
@@ -5686,11 +5774,7 @@ function BalancePage({
             {newIncomeForm.category === 'Otro' && (
               <label className="form-field">
                 <span>Detalle ingreso</span>
-                <input
-                  onChange={(event) => updateNewIncomeForm('categoryDetail', event.target.value)}
-                  placeholder="Ej: rifa, aporte extraordinario"
-                  value={newIncomeForm.categoryDetail}
-                />
+                <input onChange={(event) => updateNewIncomeForm('categoryDetail', event.target.value)} placeholder="Ej: rifa, aporte extraordinario" value={newIncomeForm.categoryDetail} />
               </label>
             )}
             <label className="form-field">
@@ -5710,24 +5794,13 @@ function BalancePage({
             </label>
             <label className="form-field full">
               <span>Adjuntar boleta / comprobante opcional</span>
-              <input
-                accept="image/*,.pdf"
-                type="file"
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-
-                  if (!file) {
-                    return
-                  }
-
-                  const reader = new FileReader()
-                  reader.addEventListener('load', () => {
-                    updateNewIncomeForm('receiptName', file.name)
-                    updateNewIncomeForm('receiptUrl', String(reader.result ?? ''))
-                  })
-                  reader.readAsDataURL(file)
-                }}
-              />
+              <input accept="image/*,.pdf" type="file" onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (!file) return
+                const reader = new FileReader()
+                reader.addEventListener('load', () => { updateNewIncomeForm('receiptName', file.name); updateNewIncomeForm('receiptUrl', String(reader.result ?? '')) })
+                reader.readAsDataURL(file)
+              }} />
             </label>
             {newIncomeForm.receiptName && <div className="receipt-chip">Comprobante: {newIncomeForm.receiptName}</div>}
             <button className="primary-button" type="submit">
@@ -5750,10 +5823,7 @@ function BalancePage({
               <select
                 onChange={(event) => {
                   updateNewExpenseForm('category', event.target.value)
-
-                  if (event.target.value !== 'Otro') {
-                    updateNewExpenseForm('categoryDetail', '')
-                  }
+                  if (event.target.value !== 'Otro') updateNewExpenseForm('categoryDetail', '')
                 }}
                 value={newExpenseForm.category}
               >
@@ -5767,11 +5837,7 @@ function BalancePage({
             {newExpenseForm.category === 'Otro' && (
               <label className="form-field">
                 <span>Detalle egreso</span>
-                <input
-                  onChange={(event) => updateNewExpenseForm('categoryDetail', event.target.value)}
-                  placeholder="Ej: agua, colacion, arbitraje"
-                  value={newExpenseForm.categoryDetail}
-                />
+                <input onChange={(event) => updateNewExpenseForm('categoryDetail', event.target.value)} placeholder="Ej: agua, colacion, arbitraje" value={newExpenseForm.categoryDetail} />
               </label>
             )}
             <label className="form-field">
@@ -5791,24 +5857,13 @@ function BalancePage({
             </label>
             <label className="form-field full">
               <span>Adjuntar boleta / comprobante opcional</span>
-              <input
-                accept="image/*,.pdf"
-                type="file"
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-
-                  if (!file) {
-                    return
-                  }
-
-                  const reader = new FileReader()
-                  reader.addEventListener('load', () => {
-                    updateNewExpenseForm('receiptName', file.name)
-                    updateNewExpenseForm('receiptUrl', String(reader.result ?? ''))
-                  })
-                  reader.readAsDataURL(file)
-                }}
-              />
+              <input accept="image/*,.pdf" type="file" onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (!file) return
+                const reader = new FileReader()
+                reader.addEventListener('load', () => { updateNewExpenseForm('receiptName', file.name); updateNewExpenseForm('receiptUrl', String(reader.result ?? '')) })
+                reader.readAsDataURL(file)
+              }} />
             </label>
             {newExpenseForm.receiptName && <div className="receipt-chip">Comprobante: {newExpenseForm.receiptName}</div>}
             <button className="primary-button" type="submit">
@@ -5818,114 +5873,103 @@ function BalancePage({
           </form>
         </div>
       </article>
+      )}
 
-      <section className="workspace-grid balance-layout">
-        <article className="panel wide-panel">
-          <div className="panel-header">
-            <div>
-              <span className="panel-kicker">{school.name}</span>
-              <h2>Ingresos por mensualidades</h2>
-            </div>
-            <span className="count-pill">{payments.length} registros</span>
+      {balanceTab === 'mensualidades' && (
+      <article className="panel">
+        <div className="panel-header">
+          <div>
+            <span className="panel-kicker">{school.name}</span>
+            <h2>Ingresos por mensualidades</h2>
           </div>
-          <div className="payment-table">
-            {payments.map((payment) => (
-              <article className="payment-row" key={payment.id}>
-                <div className="row-main">
-                  <strong>{payment.name}</strong>
-                  <span>{payment.category} - {payment.method}</span>
-                </div>
-                <strong className="amount">{payment.amount}</strong>
-                <span className={`status ${getStatusClass(payment.status)}`}>{payment.status}</span>
-                <div className="mark-actions">
-                  {(['Pagado', 'Pendiente', 'Atrasado'] as PaymentStatus[]).map((status) => (
-                    <button
-                      className={payment.status === status ? 'active' : ''}
-                      key={status}
-                      onClick={() => markPayment(payment.id, status)}
-                      type="button"
-                    >
-                      {status}
-                    </button>
-                  ))}
-                </div>
-              </article>
-            ))}
-          </div>
-        </article>
-      </section>
+          <span className="count-pill">{payments.length} registros</span>
+        </div>
+        <div className="payment-table">
+          {payments.map((payment) => (
+            <article className="payment-row" key={payment.id}>
+              <div className="row-main">
+                <strong>{payment.name}</strong>
+                <span>{payment.category} - {payment.method}</span>
+              </div>
+              <strong className="amount">{payment.amount}</strong>
+              <span className={`status ${getStatusClass(payment.status)}`}>{payment.status}</span>
+              <div className="mark-actions">
+                {(['Pagado', 'Pendiente', 'Atrasado'] as PaymentStatus[]).map((status) => (
+                  <button className={payment.status === status ? 'active' : ''} key={status} onClick={() => markPayment(payment.id, status)} type="button">
+                    {status}
+                  </button>
+                ))}
+              </div>
+            </article>
+          ))}
+          {!payments.length && <p className="helper-text">No hay mensualidades registradas.</p>}
+        </div>
+      </article>
+      )}
 
+      {balanceTab === 'ingresos' && (
       <article className="panel">
         <div className="panel-header">
           <div>
             <span className="panel-kicker">Detalle de ingresos</span>
             <h2>Ingresos manuales</h2>
           </div>
+          <span className="count-pill">{incomes.length} registros</span>
         </div>
         <div className="expense-list">
           {incomes.map((income) => (
             <article className="expense-row income-row" key={income.id}>
               <div>
                 <strong>{income.title}</strong>
-                <span>
-                  {income.category} - {income.date}
-                  {income.receiptName ? ` - Boleta: ${income.receiptName}` : ''}
-                </span>
+                <span>{income.category} - {income.date}{income.receiptName ? ` - Boleta: ${income.receiptName}` : ''}</span>
               </div>
               <strong>{income.amount}</strong>
               <span className={`status ${getStatusClass(income.status)}`}>{income.status}</span>
               <div className="mark-actions">
                 {(['Recibido', 'Pendiente'] as IncomeStatus[]).map((status) => (
-                  <button
-                    className={income.status === status ? 'active' : ''}
-                    key={status}
-                    onClick={() => markIncome(income.id, status)}
-                    type="button"
-                  >
+                  <button className={income.status === status ? 'active' : ''} key={status} onClick={() => markIncome(income.id, status)} type="button">
                     {status}
                   </button>
                 ))}
               </div>
             </article>
           ))}
+          {!incomes.length && <p className="helper-text">No hay ingresos manuales. Regístralos en "Registrar movimiento".</p>}
         </div>
       </article>
+      )}
 
+      {balanceTab === 'egresos' && (
       <article className="panel">
         <div className="panel-header">
           <div>
             <span className="panel-kicker">Detalle de gastos</span>
             <h2>Movimiento mensual</h2>
           </div>
+          <span className="count-pill">{expenses.length} registros</span>
         </div>
         <div className="expense-list">
           {expenses.map((expense) => (
             <article className="expense-row" key={expense.id}>
               <div>
                 <strong>{expense.title}</strong>
-                <span>
-                  {expense.category} - {expense.date}
-                  {expense.receiptName ? ` - Boleta: ${expense.receiptName}` : ''}
-                </span>
+                <span>{expense.category} - {expense.date}{expense.receiptName ? ` - Boleta: ${expense.receiptName}` : ''}</span>
               </div>
               <strong>{expense.amount}</strong>
               <span className={`status ${getStatusClass(expense.status)}`}>{expense.status}</span>
               <div className="mark-actions">
                 {(['Pagado', 'Pendiente'] as Expense['status'][]).map((status) => (
-                  <button
-                    className={expense.status === status ? 'active' : ''}
-                    key={status}
-                    onClick={() => markExpense(expense.id, status)}
-                    type="button"
-                  >
+                  <button className={expense.status === status ? 'active' : ''} key={status} onClick={() => markExpense(expense.id, status)} type="button">
                     {status}
                   </button>
                 ))}
               </div>
             </article>
           ))}
+          {!expenses.length && <p className="helper-text">No hay egresos registrados. Agrégalos en "Registrar movimiento".</p>}
         </div>
       </article>
+      )}
     </section>
   )
 }
@@ -5934,6 +5978,7 @@ function SchoolManagementPage({
   addCategory,
   addSchoolUser,
   categories,
+  deleteCategory,
   newCategoryForm,
   school,
   schoolUserForm,
@@ -5944,6 +5989,7 @@ function SchoolManagementPage({
   addCategory: (event: FormEvent<HTMLFormElement>) => void
   addSchoolUser: (event: FormEvent<HTMLFormElement>) => void
   categories: Category[]
+  deleteCategory: (categoryId: string) => void
   newCategoryForm: NewCategoryForm
   school: School
   schoolUserForm: NewUserForm
@@ -5953,135 +5999,155 @@ function SchoolManagementPage({
 }) {
   const [tab, setTab] = useState('usuarios')
   return (
-    <section className="workspace-grid management-layout">
-    <SectionTabs
-  value={tab}
-  onChange={setTab}
-  tabs={[
-    { id: 'usuarios', label: 'Usuarios' },
-    { id: 'crear', label: 'Crear usuario' },
-    { id: 'categorias', label: 'Categorías' },
-  ]}
-/>
+    <section className="balance-page">
+      <SectionTabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'usuarios', label: `Usuarios (${users.length})` },
+          { id: 'crear', label: 'Crear usuario' },
+          { id: 'categorias', label: `Categorías (${categories.length})` },
+          { id: 'nueva-cat', label: 'Crear categoría' },
+        ]}
+      />
 
-      <article className="panel wide-panel">
-        <div className="panel-header">
-          <div>
-            <span className="panel-kicker">{school.name}</span>
-            <h2>Usuarios de la escuela</h2>
-          </div>
-          <span className="count-pill">{users.length} usuarios</span>
-        </div>
-        <div className="admin-user-list">
-          {users.map((user) => (
-            <article className="admin-user-row school-user-row" key={user.id}>
-              <div className="avatar">{user.name.slice(0, 1)}</div>
-              <div>
-                <strong>{user.name}</strong>
-                <span>{getRoleLabel(user.role)} - {user.category}</span>
-                <small>RUT: {user.rut} - {user.status}</small>
-              </div>
-              <span className={`status ${getStatusClass(user.status)}`}>{user.status}</span>
-            </article>
-          ))}
-        </div>
-      </article>
-
-      <aside className="panel">
-        <div className="panel-header">
-          <div>
-            <span className="panel-kicker">Nuevo usuario</span>
-            <h2>Crear acceso</h2>
-          </div>
-        </div>
-        <form className="school-form" onSubmit={addSchoolUser}>
-          <label className="form-field">
-            <span>Nombre</span>
-            <input onChange={(event) => updateSchoolUserForm('name', event.target.value)} value={schoolUserForm.name} />
-          </label>
-          <label className="form-field">
-            <span>RUT</span>
-            <input onChange={(event) => updateSchoolUserForm('rut', normalizeRut(event.target.value))} value={schoolUserForm.rut} />
-          </label>
-          <label className="form-field">
-            <span>Clave</span>
-            <input onChange={(event) => updateSchoolUserForm('password', event.target.value)} value={schoolUserForm.password} />
-          </label>
-          <label className="form-field">
-            <span>Rol</span>
-            <select onChange={(event) => updateSchoolUserForm('role', event.target.value as UserRole)} value={schoolUserForm.role}>
-              <option value="DT">Profesor</option>
-              <option value="Finanzas">Finanzas</option>
-              <option value="Alumno">Alumno</option>
-            </select>
-          </label>
-          <label className="form-field">
-            <span>Categoria</span>
-            <select onChange={(event) => updateSchoolUserForm('category', event.target.value)} value={schoolUserForm.category}>
-              {categories.map((category) => (
-                <option key={category.id}>{category.label}</option>
-              ))}
-            </select>
-          </label>
-          <button className="primary-button" type="submit">
-            <UserCog size={18} aria-hidden="true" />
-            Crear usuario
-          </button>
-        </form>
-      </aside>
-
-      <article className="panel wide-panel">
-        <div className="panel-header">
-          <div>
-            <span className="panel-kicker">Categorias</span>
-            <h2>Grupos de la escuela</h2>
-          </div>
-          <span className="count-pill">{categories.length} categorias</span>
-        </div>
-        <div className="category-list">
-          {categories.map((category) => (
-            <div className="category-row" key={category.id}>
-              <div>
-                <strong>{category.label}</strong>
-                <span>{category.branch} - {category.students} alumnos</span>
-              </div>
-              <div className="mini-field">
-                <span style={{ width: category.attendance }}></span>
-              </div>
-              <b>{category.attendance}</b>
+      {tab === 'usuarios' && (
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <span className="panel-kicker">{school.name}</span>
+              <h2>Usuarios de la escuela</h2>
             </div>
-          ))}
-        </div>
-      </article>
-
-      <aside className="panel">
-        <div className="panel-header">
-          <div>
-            <span className="panel-kicker">Nueva categoria</span>
-            <h2>Crear grupo</h2>
+            <span className="count-pill">{users.length} usuarios</span>
           </div>
-        </div>
-        <form className="school-form" onSubmit={addCategory}>
-          <label className="form-field">
-            <span>Nombre categoria</span>
-            <input onChange={(event) => updateNewCategoryForm('label', event.target.value)} value={newCategoryForm.label} />
-          </label>
-          <label className="form-field">
-            <span>Rama</span>
-            <select onChange={(event) => updateNewCategoryForm('branch', event.target.value)} value={newCategoryForm.branch}>
-              <option>Mixta</option>
-              <option>Femenina</option>
-              <option>Masculina</option>
-              <option>Arqueros</option>
-              <option>Proyeccion</option>
-            </select>
-          </label>
-          <button className="primary-button" type="submit">
-            <Plus size={18} aria-hidden="true" />
-            Crear categoria
-          </button>
-        </form>
-      </aside>
+          <div className="admin-user-list">
+            {users.map((user) => (
+              <article className="admin-user-row school-user-row" key={user.id}>
+                <div className="avatar">{user.name.slice(0, 1)}</div>
+                <div>
+                  <strong>{user.name}</strong>
+                  <span>{getRoleLabel(user.role)} - {user.category}</span>
+                  <small>RUT: {user.rut} - {user.status}</small>
+                </div>
+                <span className={`status ${getStatusClass(user.status)}`}>{user.status}</span>
+              </article>
+            ))}
+            {!users.length && <p className="helper-text">No hay usuarios creados. Ve a "Crear usuario" para agregar uno.</p>}
+          </div>
+        </article>
+      )}
+
+      {tab === 'crear' && (
+        <article className="panel" style={{ maxWidth: 520 }}>
+          <div className="panel-header">
+            <div>
+              <span className="panel-kicker">Nuevo usuario</span>
+              <h2>Crear acceso a {school.name}</h2>
+            </div>
+          </div>
+          <form className="school-form" onSubmit={addSchoolUser}>
+            <label className="form-field">
+              <span>Nombre completo</span>
+              <input onChange={(event) => updateSchoolUserForm('name', event.target.value)} value={schoolUserForm.name} />
+            </label>
+            <label className="form-field">
+              <span>RUT</span>
+              <input onChange={(event) => updateSchoolUserForm('rut', normalizeRut(event.target.value))} placeholder="11111111-1" value={schoolUserForm.rut} />
+            </label>
+            <label className="form-field">
+              <span>Contraseña</span>
+              <input onChange={(event) => updateSchoolUserForm('password', event.target.value)} value={schoolUserForm.password} />
+            </label>
+            <label className="form-field">
+              <span>Rol</span>
+              <select onChange={(event) => updateSchoolUserForm('role', event.target.value as UserRole)} value={schoolUserForm.role}>
+                <option value="DT">Profesor / DT</option>
+                <option value="Finanzas">Finanzas</option>
+                <option value="Alumno">Alumno</option>
+                <option value="Director">Director / Admin</option>
+              </select>
+            </label>
+            <label className="form-field">
+              <span>Categoría asignada</span>
+              <select onChange={(event) => updateSchoolUserForm('category', event.target.value)} value={schoolUserForm.category}>
+                {categories.map((category) => (
+                  <option key={category.id}>{category.label}</option>
+                ))}
+              </select>
+            </label>
+            <button className="primary-button" type="submit">
+              <UserCog size={18} aria-hidden="true" />
+              Crear usuario
+            </button>
+          </form>
+        </article>
+      )}
+
+      {tab === 'categorias' && (
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <span className="panel-kicker">Grupos activos</span>
+              <h2>Categorías de {school.name}</h2>
+            </div>
+            <span className="count-pill">{categories.length} categorías</span>
+          </div>
+          <div className="category-list">
+            {categories.map((category) => (
+              <div className="category-row" key={category.id}>
+                <div>
+                  <strong>{category.label}</strong>
+                  <span>{category.branch} - {category.students} alumnos</span>
+                </div>
+                <div className="mini-field">
+                  <span style={{ width: category.attendance }}></span>
+                </div>
+                <b>{category.attendance}</b>
+                <button
+                  className="small-button danger-button"
+                  onClick={() => deleteCategory(category.id)}
+                  type="button"
+                  aria-label={`Borrar categoría ${category.label}`}
+                >
+                  <Trash2 size={14} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+            {!categories.length && <p className="helper-text">Sin categorías. Crea la primera en "Crear categoría".</p>}
+          </div>
+        </article>
+      )}
+
+      {tab === 'nueva-cat' && (
+        <article className="panel" style={{ maxWidth: 400 }}>
+          <div className="panel-header">
+            <div>
+              <span className="panel-kicker">Nuevo grupo</span>
+              <h2>Crear categoría</h2>
+            </div>
+          </div>
+          <form className="school-form" onSubmit={addCategory}>
+            <label className="form-field">
+              <span>Nombre categoría</span>
+              <input onChange={(event) => updateNewCategoryForm('label', event.target.value)} placeholder="Ej: Sub 14, Femenina Sub 10" value={newCategoryForm.label} />
+            </label>
+            <label className="form-field">
+              <span>Rama</span>
+              <select onChange={(event) => updateNewCategoryForm('branch', event.target.value)} value={newCategoryForm.branch}>
+                <option>Mixta</option>
+                <option>Femenina</option>
+                <option>Masculina</option>
+                <option>Arqueros</option>
+                <option>Proyeccion</option>
+              </select>
+            </label>
+            <button className="primary-button" type="submit">
+              <Plus size={18} aria-hidden="true" />
+              Crear categoría
+            </button>
+          </form>
+        </article>
+      )}
     </section>
   )
 }
