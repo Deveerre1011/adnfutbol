@@ -55,7 +55,7 @@ type MessageMode = 'individual' | 'masivo'
 type ReportKind = 'asistencia' | 'finanzas'
 type UserRole = 'SuperAdmin' | 'Director' | 'DT' | 'Finanzas' | 'Alumno'
 type AccountStatus = 'Activo' | 'Pendiente' | 'Bloqueado'
-type SuperAdminSection = 'escuelas' | 'crear' | 'usuarios' | 'carga' | 'permisos'
+type SuperAdminSection = 'escuelas' | 'crear' | 'usuarios' | 'vistas' | 'carga' | 'permisos'
 
 type School = {
   id: string
@@ -69,6 +69,7 @@ type School = {
   contactEmail: string
   plan: string
   monthlyFee: string
+  enabledViews?: View[]
 }
 
 type User = {
@@ -1464,6 +1465,26 @@ function getDefaultPermissions(role: UserRole, category: string) {
 }
 
 const storedAppKey = 'adnfutbol-state-v1'
+const storedSessionKey = 'adnfutbol-session-v1'
+
+function loadStoredSession(): User | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(storedSessionKey)
+    return raw ? (JSON.parse(raw) as User) : null
+  } catch {
+    return null
+  }
+}
+
+function saveStoredSession(user: User | null) {
+  if (typeof window === 'undefined') return
+  if (user) {
+    window.localStorage.setItem(storedSessionKey, JSON.stringify(user))
+  } else {
+    window.localStorage.removeItem(storedSessionKey)
+  }
+}
 
 function loadStoredAppState(): Partial<StoredAppState> {
   if (typeof window === 'undefined') {
@@ -1543,10 +1564,10 @@ function SectionTabs({
 function App() {
   const [storedState] = useState(() => loadStoredAppState())
   const [isPersistenceReady, setIsPersistenceReady] = useState(false)
-  const [authStep, setAuthStep] = useState<AuthStep>('credentials')
+  const [authStep, setAuthStep] = useState<AuthStep>(() => (loadStoredSession() ? 'app' : 'credentials'))
   const [loginRut, setLoginRut] = useState('99999999-9')
   const [password, setPassword] = useState('demo123')
-  const [coach, setCoach] = useState<User | null>(null)
+  const [coach, setCoach] = useState<User | null>(() => loadStoredSession())
   const [authNotice, setAuthNotice] = useState('')
   const [schools, setSchools] = useState<School[]>(() => storedState.schools ?? initialSchools)
   const [newSchoolForm, setNewSchoolForm] = useState<NewSchoolForm>(() => buildEmptySchoolForm())
@@ -1780,7 +1801,8 @@ function App() {
 
   const roleNavItems = useMemo(() => {
     if (coach?.role === 'Director') {
-      return navItems
+      const allowed = school.enabledViews ?? navItems.map((item) => item.id)
+      return navItems.filter((item) => allowed.includes(item.id))
     }
 
     if (coach?.role === 'DT') {
@@ -1901,6 +1923,7 @@ function App() {
     }
 
     setCoach(foundCoach)
+    saveStoredSession(foundCoach)
     setSuperAdminPreviewSchoolId(null)
     setAuthNotice('')
     setAuthStep('app')
@@ -1931,6 +1954,7 @@ function App() {
 
   function logout() {
     setCoach(null)
+    saveStoredSession(null)
     setAuthStep('credentials')
     setActiveView('panel')
     setNotice('')
@@ -2121,6 +2145,23 @@ function App() {
     setSelectedEventId(importedEvents[0].id)
     setBulkEventText('')
     setNotice(`${importedEvents.length} eventos importados correctamente.`)
+  }
+
+  function deleteEvent(eventId: string) {
+    const targetEvent = events.find((e) => e.id === eventId)
+    if (!targetEvent) return
+    const confirmed = window.confirm(`¿Borrar "${targetEvent.title}"? Esta acción no se puede deshacer.`)
+    if (!confirmed) return
+    setEvents((current) => current.filter((e) => e.id !== eventId))
+    setEventAttendance((current) => current.filter((a) => a.eventId !== eventId))
+    const remaining = events.filter((e) => e.id !== eventId)
+    setSelectedEventId(remaining[0]?.id ?? '')
+    setNotice(`"${targetEvent.title}" fue eliminado.`)
+  }
+
+  function updateEvent(eventId: string, fields: Partial<Pick<CalendarEvent, 'title' | 'date' | 'time' | 'location' | 'opponent' | 'category'>>) {
+    setEvents((current) => current.map((e) => e.id === eventId ? { ...e, ...fields } : e))
+    setNotice('Evento actualizado.')
   }
 
   function markEventAttendance(eventId: string, student: Student, status: EventAttendanceStatus) {
@@ -2632,6 +2673,18 @@ function App() {
     setNotice(`Categoría "${target.label}" eliminada.`)
   }
 
+  function updateSchoolViews(schoolId: string, view: View, enabled: boolean) {
+    setSchools((current) =>
+      current.map((s) => {
+        if (s.id !== schoolId) return s
+        const all: View[] = ['panel', 'alumnos', 'eventos', 'asistencia', 'pagos', 'finanzas', 'balance', 'gestion', 'mensajes', 'perfil']
+        const current = s.enabledViews ?? all
+        const next = enabled ? [...new Set([...current, view])] : current.filter((v) => v !== view)
+        return { ...s, enabledViews: next }
+      })
+    )
+  }
+
   function addExpense(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -3036,6 +3089,18 @@ function App() {
       lastAccess: 'Vista SuperAdmin',
       permissions: ['Vista completa escuela', 'Alumnos', 'Asistencia', 'Finanzas', 'Mensajes'],
     })
+    saveStoredSession({
+      id: `portal-${selectedSchool.id}`,
+      name: 'SuperAdmin',
+      rut: '99999999-9',
+      password: 'demo123',
+      role: 'Director',
+      category: 'Todas',
+      schoolId: selectedSchool.id,
+      status: 'Activo',
+      lastAccess: 'Vista SuperAdmin',
+      permissions: ['Vista completa escuela', 'Alumnos', 'Asistencia', 'Finanzas', 'Mensajes'],
+    })
     setSuperAdminPreviewSchoolId(selectedSchool.id)
     setActiveView('panel')
     setSelectedCategory('Todas')
@@ -3050,6 +3115,7 @@ function App() {
     const superAdminUser = users.find((user) => user.role === 'SuperAdmin') ?? demoUsers[0]
 
     setCoach(superAdminUser)
+    saveStoredSession(superAdminUser)
     setSuperAdminPreviewSchoolId(null)
     setActiveView('panel')
     setNotice('Volviste al portal SuperAdmin.')
@@ -3123,6 +3189,7 @@ function App() {
         toggleUserPermission={toggleUserPermission}
         updateNewSchoolForm={updateNewSchoolForm}
         updateNewUserForm={updateNewUserForm}
+        updateSchoolViews={updateSchoolViews}
         updateUserField={updateUserField}
         updateUserRole={updateUserRole}
         users={users}
@@ -3278,6 +3345,7 @@ function App() {
             canManageEvents={canUseAttendance}
             categoryOptions={categoryOptions}
             coach={coach}
+            deleteEvent={deleteEvent}
             eventAttendance={eventAttendance}
             events={schoolEvents}
             markEventAttendance={markEventAttendance}
@@ -3289,6 +3357,7 @@ function App() {
             setBulkEventText={setBulkEventText}
             toggleTrainingWeekday={toggleTrainingWeekday}
             trainingForm={trainingForm}
+            updateEvent={updateEvent}
             updateMatchForm={updateMatchForm}
             updateTrainingForm={updateTrainingForm}
           />
@@ -3563,6 +3632,7 @@ function SuperAdminPortal({
   toggleUserStatus,
   updateNewSchoolForm,
   updateNewUserForm,
+  updateSchoolViews,
   updateUserField,
   updateUserRole,
   users,
@@ -3593,6 +3663,7 @@ function SuperAdminPortal({
   toggleUserStatus: (userId: string) => void
   updateNewSchoolForm: (field: keyof NewSchoolForm, value: string) => void
   updateNewUserForm: (field: keyof NewUserForm, value: string) => void
+  updateSchoolViews: (schoolId: string, view: View, enabled: boolean) => void
   updateUserField: (userId: string, field: keyof Pick<User, 'name' | 'rut' | 'category' | 'schoolId' | 'status'>, value: string) => void
   updateUserRole: (userId: string, role: UserRole) => void
   users: User[]
@@ -3630,6 +3701,7 @@ function SuperAdminPortal({
     { id: 'escuelas', label: 'Escuelas', icon: Building2 },
     { id: 'crear', label: 'Crear escuela', icon: Plus },
     { id: 'usuarios', label: 'Usuarios', icon: UserCog },
+    { id: 'vistas', label: 'Vistas por escuela', icon: SlidersHorizontal },
     { id: 'carga', label: 'Carga masiva', icon: Upload },
     { id: 'permisos', label: 'Permisos', icon: ShieldCheck },
   ]
@@ -4089,6 +4161,122 @@ function SuperAdminPortal({
                 </div>
               </div>
             )}
+          </article>
+        </section>
+      )}
+
+      {section === 'vistas' && (
+        <section className="superadmin-single">
+          <article className="panel wide-panel">
+            <div className="panel-header">
+              <div>
+                <span className="panel-kicker">Control de acceso</span>
+                <h2>Vistas disponibles por escuela</h2>
+                <p style={{ marginTop: 6, color: 'var(--text-secondary)', fontSize: 14 }}>
+                  Activa o desactiva las pestañas que verá el administrador de cada escuela. Los cambios aplican de inmediato.
+                </p>
+              </div>
+            </div>
+            <div className="school-network">
+              {schools.map((school) => {
+                const allViews: { id: View; label: string; description: string }[] = [
+                  { id: 'panel', label: 'Panel', description: 'Resumen general y accesos rápidos' },
+                  { id: 'alumnos', label: 'Alumnos', description: 'Fichas, búsqueda y gestión de jugadores' },
+                  { id: 'eventos', label: 'Eventos', description: 'Entrenamientos y partidos' },
+                  { id: 'asistencia', label: 'Asistencia', description: 'Control de presencia por categoría' },
+                  { id: 'pagos', label: 'Pagos', description: 'Mensualidades y estado de cobros' },
+                  { id: 'finanzas', label: 'Finanzas', description: 'Conciliación y reportes financieros' },
+                  { id: 'balance', label: 'Balance', description: 'Ingresos, egresos y resultado mensual' },
+                  { id: 'gestion', label: 'Gestión', description: 'Usuarios y categorías de la escuela' },
+                  { id: 'mensajes', label: 'Mensajes', description: 'Plantillas y envíos por WhatsApp' },
+                  { id: 'perfil', label: 'Perfil', description: 'Ficha deportiva del jugador' },
+                ]
+                const enabled = school.enabledViews ?? allViews.map((v) => v.id)
+                const activeCount = enabled.length
+                return (
+                  <article key={school.id} className="school-admin-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div className="school-admin-logo">
+                        {school.logo ? <img src={school.logo} alt="" /> : school.initials}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <strong>{school.name}</strong>
+                        <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 13 }}>{school.city} — Plan {school.plan}</span>
+                      </div>
+                      <span className="count-pill">{activeCount}/{allViews.length} vistas</span>
+                    </div>
+                    <div className="permission-check-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
+                      {allViews.map((view) => {
+                        const isEnabled = enabled.includes(view.id)
+                        return (
+                          <label
+                            key={view.id}
+                            className="permission-check"
+                            style={{
+                              flexDirection: 'column',
+                              alignItems: 'flex-start',
+                              gap: 4,
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              borderColor: isEnabled ? 'var(--border-muted)' : 'var(--border-subtle)',
+                              background: isEnabled ? 'rgba(178,255,89,0.04)' : 'var(--surface-2)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <input
+                                checked={isEnabled}
+                                onChange={(e) => updateSchoolViews(school.id, view.id, e.target.checked)}
+                                type="checkbox"
+                              />
+                              <span style={{ fontWeight: 700, color: isEnabled ? 'var(--adn-lime)' : 'var(--text-secondary)' }}>
+                                {view.label}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>
+                              {view.description}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="ghost-button"
+                        style={{ flex: 1, fontSize: 13 }}
+                        onClick={() => {
+                          const allIds = allViews.map((v) => v.id)
+                          allIds.forEach((id) => updateSchoolViews(school.id, id, true))
+                        }}
+                        type="button"
+                      >
+                        Activar todo
+                      </button>
+                      <button
+                        className="ghost-button"
+                        style={{ flex: 1, fontSize: 13 }}
+                        onClick={() => {
+                          allViews.forEach((v) => updateSchoolViews(school.id, v.id, false))
+                        }}
+                        type="button"
+                      >
+                        Desactivar todo
+                      </button>
+                      <button
+                        className="ghost-button"
+                        style={{ flex: 1, fontSize: 13 }}
+                        onClick={() => {
+                          const beneficioViews: View[] = ['panel', 'alumnos', 'eventos', 'asistencia', 'mensajes', 'perfil']
+                          allViews.forEach((v) => updateSchoolViews(school.id, v.id, beneficioViews.includes(v.id)))
+                        }}
+                        type="button"
+                      >
+                        Preset Beneficio
+                      </button>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
           </article>
         </section>
       )}
@@ -4815,6 +5003,7 @@ function EventsPage({
   canManageEvents,
   categoryOptions,
   coach,
+  deleteEvent,
   eventAttendance,
   events,
   markEventAttendance,
@@ -4826,6 +5015,7 @@ function EventsPage({
   setBulkEventText,
   toggleTrainingWeekday,
   trainingForm,
+  updateEvent,
   updateMatchForm,
   updateTrainingForm,
 }: {
@@ -4835,6 +5025,7 @@ function EventsPage({
   canManageEvents: boolean
   categoryOptions: string[]
   coach: User
+  deleteEvent: (eventId: string) => void
   eventAttendance: EventAttendance[]
   events: CalendarEvent[]
   markEventAttendance: (eventId: string, student: Student, status: EventAttendanceStatus) => void
@@ -4846,10 +5037,14 @@ function EventsPage({
   setBulkEventText: (value: string) => void
   toggleTrainingWeekday: (day: string) => void
   trainingForm: NewTrainingForm
+  updateEvent: (eventId: string, fields: Partial<Pick<CalendarEvent, 'title' | 'date' | 'time' | 'location' | 'opponent' | 'category'>>) => void
   updateMatchForm: (field: keyof NewMatchForm, value: string) => void
   updateTrainingForm: (field: keyof NewTrainingForm, value: string) => void
 }) {
-  const [eventModal, setEventModal] = useState<'training' | 'match' | 'bulk' | null>(null)
+  const [eventModal, setEventModal] = useState<'training' | 'match' | 'bulk' | 'edit' | null>(null)
+  const [editForm, setEditForm] = useState<{ title: string; date: string; time: string; location: string; opponent: string; category: string }>({
+    title: '', date: '', time: '', location: '', opponent: '', category: '',
+  })
   const eventCategories = categoryOptions.length ? categoryOptions : ['Todas']
   const selectedEvent = events.find((event) => event.id === selectedEventId) ?? events[0]
   const eventRoster = selectedEvent
@@ -4878,22 +5073,58 @@ function EventsPage({
 
         <div className="event-list">
           {events.map((event) => (
-            <button
-              className={selectedEvent?.id === event.id ? 'event-card active' : 'event-card'}
-              key={event.id}
-              onClick={() => setSelectedEventId(event.id)}
-              type="button"
-            >
-              <div>
-                <span className={`event-type ${event.type === 'Partido' ? 'match' : 'training'}`}>{event.type}</span>
-                <strong>{event.title}</strong>
-                <small>{event.category} - {event.location}</small>
-              </div>
-              <div>
-                <b>{formatEventDate(event.date)}</b>
-                <span>{event.time}</span>
-              </div>
-            </button>
+            <div className="event-card-wrapper" key={event.id}>
+              <button
+                className={selectedEvent?.id === event.id ? 'event-card active' : 'event-card'}
+                onClick={() => setSelectedEventId(event.id)}
+                type="button"
+              >
+                <div>
+                  <span className={`event-type ${event.type === 'Partido' ? 'match' : 'training'}`}>{event.type}</span>
+                  <strong>{event.title}</strong>
+                  <small>{event.category} - {event.location}</small>
+                </div>
+                <div>
+                  <b>{formatEventDate(event.date)}</b>
+                  <span>{event.time}</span>
+                </div>
+              </button>
+              {canManageEvents && (
+                <div className="event-card-actions">
+                  <button
+                    className="icon-button"
+                    title="Editar evento"
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedEventId(event.id)
+                      setEditForm({
+                        title: event.title,
+                        date: event.date,
+                        time: event.time,
+                        location: event.location,
+                        opponent: event.opponent ?? '',
+                        category: event.category,
+                      })
+                      setEventModal('edit')
+                    }}
+                  >
+                    <Pencil size={15} aria-hidden="true" />
+                  </button>
+                  <button
+                    className="icon-button danger-icon-button"
+                    title="Borrar evento"
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteEvent(event.id)
+                    }}
+                  >
+                    <Trash2 size={15} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+            </div>
           ))}
           {!events.length && <p className="helper-text">Aun no hay eventos creados para esta escuela.</p>}
         </div>
@@ -5000,7 +5231,7 @@ function EventsPage({
               <div>
                 <span className="panel-kicker">Eventos</span>
                 <h2 id="event-modal-title">
-                  {eventModal === 'training' ? 'Crear entrenamientos' : eventModal === 'match' ? 'Crear partido' : 'Carga masiva de eventos'}
+                  {eventModal === 'training' ? 'Crear entrenamientos' : eventModal === 'match' ? 'Crear partido' : eventModal === 'edit' ? 'Editar evento' : 'Carga masiva de eventos'}
                 </h2>
               </div>
               <button className="icon-button" onClick={() => setEventModal(null)} type="button" aria-label="Cerrar eventos">
@@ -5127,6 +5358,86 @@ function EventsPage({
                   <button className="primary-button" type="submit">
                     <Upload size={18} aria-hidden="true" />
                     Importar eventos
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {eventModal === 'edit' && selectedEvent && (
+              <form
+                className="event-form"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  updateEvent(selectedEvent.id, {
+                    title: editForm.title.trim() || selectedEvent.title,
+                    date: editForm.date || selectedEvent.date,
+                    time: editForm.time || selectedEvent.time,
+                    location: editForm.location.trim() || selectedEvent.location,
+                    opponent: editForm.opponent.trim() || undefined,
+                    category: editForm.category || selectedEvent.category,
+                  })
+                  setEventModal(null)
+                }}
+              >
+                <label className="form-field">
+                  <span>Nombre</span>
+                  <input
+                    onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+                    value={editForm.title}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Categoria</span>
+                  <select
+                    onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
+                    value={editForm.category}
+                  >
+                    {eventCategories.map((cat) => (
+                      <option key={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="color-fields">
+                  <label className="form-field">
+                    <span>Fecha</span>
+                    <input
+                      type="date"
+                      onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
+                      value={editForm.date}
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>Hora</span>
+                    <input
+                      type="time"
+                      onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))}
+                      value={editForm.time}
+                    />
+                  </label>
+                </div>
+                <label className="form-field">
+                  <span>Lugar</span>
+                  <input
+                    onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))}
+                    value={editForm.location}
+                  />
+                </label>
+                {selectedEvent.type === 'Partido' && (
+                  <label className="form-field">
+                    <span>Rival</span>
+                    <input
+                      onChange={(e) => setEditForm((f) => ({ ...f, opponent: e.target.value }))}
+                      value={editForm.opponent}
+                    />
+                  </label>
+                )}
+                <div className="modal-actions">
+                  <button className="ghost-button" onClick={() => setEventModal(null)} type="button">
+                    Cancelar
+                  </button>
+                  <button className="primary-button" type="submit">
+                    <CheckCircle2 size={18} aria-hidden="true" />
+                    Guardar cambios
                   </button>
                 </div>
               </form>
