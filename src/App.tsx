@@ -21,7 +21,7 @@ import {
   LayoutDashboard,
   LockKeyhole,
   LogOut,
-  Menu,
+  Home,
   MessageCircle,
   Pencil,
   Phone,
@@ -156,6 +156,7 @@ type CalendarEvent = {
   category: string
   date: string
   time: string
+  endTime?: string
   location: string
   opponent?: string
 }
@@ -294,6 +295,7 @@ type NewTrainingForm = {
   month: string
   weekdays: string[]
   time: string
+  endTime: string
   category: string
   location: string
 }
@@ -1261,17 +1263,18 @@ function detectImageColors(imageSource: string) {
   })
 }
 
-function buildEmptyTrainingForm(category = 'Sub 8'): NewTrainingForm {
+function buildEmptyTrainingForm(category = ''): NewTrainingForm {
   return {
     month: '2026-04',
     weekdays: ['6'],
     time: '18:00',
+    endTime: '19:30',
     category,
     location: 'Cancha 1',
   }
 }
 
-function buildEmptyMatchForm(category = 'Sub 8'): NewMatchForm {
+function buildEmptyMatchForm(category = ''): NewMatchForm {
   return {
     title: 'Partido amistoso',
     date: '2026-04-30',
@@ -1561,6 +1564,22 @@ function SectionTabs({
   )
 }
 
+function SplashScreen() {
+  return (
+    <main className="splash-shell">
+      <div className="splash-card">
+        <div className="splash-brand">
+          <img src={adnIcon} alt="ADN Fútbol" />
+        </div>
+        <div className="splash-copy">
+          <strong>ADN Fútbol</strong>
+          <p>Preparando entrenamiento...</p>
+        </div>
+      </div>
+    </main>
+  )
+}
+
 function App() {
   const [storedState] = useState(() => loadStoredAppState())
   const [isPersistenceReady, setIsPersistenceReady] = useState(false)
@@ -1592,7 +1611,10 @@ function App() {
   const [events, setEvents] = useState<CalendarEvent[]>(() => storedState.events ?? initialEvents)
   const [eventAttendance, setEventAttendance] = useState<EventAttendance[]>(() => storedState.eventAttendance ?? initialEventAttendance)
   const [selectedEventId, setSelectedEventId] = useState(initialEvents[0]?.id ?? '')
+  const [eventModal, setEventModal] = useState<'training' | 'match' | 'bulk' | 'edit' | null>(null)
   const [trainingForm, setTrainingForm] = useState<NewTrainingForm>(() => buildEmptyTrainingForm())
+  const [trainingConfirmOpen, setTrainingConfirmOpen] = useState(false)
+  const [isCreatingTraining, setIsCreatingTraining] = useState(false)
   const [matchForm, setMatchForm] = useState<NewMatchForm>(() => buildEmptyMatchForm())
   const [bulkEventText, setBulkEventText] = useState('')
   const [paymentFilter, setPaymentFilter] = useState<PaymentStatus | 'Todos'>('Todos')
@@ -2028,60 +2050,100 @@ function App() {
 
   function addMonthlyTrainings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-
-    if (!trainingForm.month || !trainingForm.weekdays.length || !trainingForm.time || !trainingForm.category) {
-      setNotice('Selecciona mes, dias, horario y categoria para crear entrenamientos.')
-      return
-    }
-
-    const [year, month] = trainingForm.month.split('-').map(Number)
-    const selectedDays = new Set(trainingForm.weekdays.map(Number))
-    const createdEvents: CalendarEvent[] = []
-    const existingKeys = new Set(
-      events.map((item) => `${item.schoolId}-${item.type}-${item.category}-${item.date}-${item.time}`),
-    )
-
-    for (let day = 1; day <= new Date(year, month, 0).getDate(); day += 1) {
-      const currentDate = new Date(year, month - 1, day)
-
-      if (!selectedDays.has(currentDate.getDay())) {
-        continue
-      }
-
-      const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      const duplicateKey = `${school.id}-Entrenamiento-${trainingForm.category}-${date}-${trainingForm.time}`
-
-      if (existingKeys.has(duplicateKey)) {
-        continue
-      }
-
-      createdEvents.push({
-        id: `event-training-${school.id}-${trainingForm.category}-${date}-${trainingForm.time}`.replace(/[^a-zA-Z0-9-]+/g, '-'),
-        schoolId: school.id,
-        type: 'Entrenamiento',
-        title: `Entrenamiento ${trainingForm.category}`,
-        category: trainingForm.category,
-        date,
-        time: trainingForm.time,
-        location: trainingForm.location.trim() || 'Cancha por definir',
-      })
-    }
-
-    if (!createdEvents.length) {
-      setNotice('No se crearon entrenamientos nuevos. Revisa si ya existian para esos dias y horario.')
-      return
-    }
-
-    setEvents((current) => [...current, ...createdEvents])
-    setSelectedEventId(createdEvents[0].id)
-    setNotice(`${createdEvents.length} entrenamientos creados para ${trainingForm.month}.`)
+    handleTrainingSubmit(event)
   }
+
+  function handleTrainingSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!trainingForm.month || !trainingForm.weekdays.length || !trainingForm.time || !trainingForm.endTime || !trainingForm.category) {
+      setNotice('Selecciona mes, dias, horario, hora de término y categoria para crear entrenamientos.')
+      return
+    }
+
+    if (!schoolCategories.some((category) => category.label === trainingForm.category)) {
+      setNotice('Selecciona una categoria valida para crear entrenamientos.')
+      return
+    }
+
+    if (trainingForm.endTime <= trainingForm.time) {
+      setNotice('La hora de término debe ser posterior a la hora de inicio.')
+      return
+    }
+
+    setTrainingConfirmOpen(true)
+  }
+
+  async function createTrainingsConfirmed() {
+    try {
+      setIsCreatingTraining(true)
+
+      const [year, month] = trainingForm.month.split('-').map(Number)
+      const selectedDays = new Set(trainingForm.weekdays.map(Number))
+      const createdEvents: CalendarEvent[] = []
+      const existingKeys = new Set(
+        events.map((item) => `${item.schoolId}-${item.type}-${item.category}-${item.date}-${item.time}`),
+      )
+
+      for (let day = 1; day <= new Date(year, month, 0).getDate(); day += 1) {
+        const currentDate = new Date(year, month - 1, day)
+
+        if (!selectedDays.has(currentDate.getDay())) {
+          continue
+        }
+
+        const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        const duplicateKey = `${school.id}-Entrenamiento-${trainingForm.category}-${date}-${trainingForm.time}`
+
+        if (existingKeys.has(duplicateKey)) {
+          continue
+        }
+
+        createdEvents.push({
+          id: `event-training-${school.id}-${trainingForm.category}-${date}-${trainingForm.time}`.replace(/[^a-zA-Z0-9-]+/g, '-'),
+          schoolId: school.id,
+          type: 'Entrenamiento',
+          title: `Entrenamiento ${trainingForm.category}`,
+          category: trainingForm.category,
+          date,
+          time: trainingForm.time,
+          endTime: trainingForm.endTime,
+          location: trainingForm.location.trim() || 'Cancha por definir',
+        })
+      }
+
+      if (!createdEvents.length) {
+        setNotice('No se crearon entrenamientos nuevos. Revisa si ya existian para esos dias y horario.')
+        setTrainingConfirmOpen(false)
+        setIsCreatingTraining(false)
+        return
+      }
+
+      setEvents((current) => [...current, ...createdEvents])
+      setSelectedEventId(createdEvents[0].id)
+      setNotice(`${createdEvents.length} entrenamientos creados para ${trainingForm.month}.`)
+      setTrainingForm(buildEmptyTrainingForm())
+      setTrainingConfirmOpen(false)
+      setEventModal(null)
+      setActiveView('eventos')
+    } catch (err) {
+      setNotice('Error creando entrenamientos. Revisa tu conexion o intenta de nuevo.')
+    } finally {
+      setIsCreatingTraining(false)
+    }
+  }
+
 
   function addMatchEvent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
     if (!matchForm.title.trim() || !matchForm.date || !matchForm.time || !matchForm.category) {
       setNotice('Completa nombre, fecha, hora y categoria del partido.')
+      return
+    }
+
+    if (!schoolCategories.some((category) => category.label === matchForm.category)) {
+      setNotice('Selecciona una categoria valida para el partido.')
       return
     }
 
@@ -2118,8 +2180,9 @@ function App() {
         .split(line.includes(';') ? ';' : '\t')
         .map((item) => item.trim())
       const normalizedType = validTypes.find((type) => type.toLowerCase() === typeValue.toLowerCase())
+    const categoryExists = schoolCategories.some((category) => category.label === categoryValue)
 
-      if (!normalizedType || !categoryValue || !date || !time) {
+      if (!normalizedType || !categoryValue || !date || !time || !categoryExists) {
         return
       }
 
@@ -2533,6 +2596,40 @@ function App() {
     setNotice(`${targetSchool.name} fue borrada del prototipo.`)
   }
 
+  function deleteUser(userId: string) {
+    const targetUser = users.find((user) => user.id === userId)
+
+    if (!targetUser) {
+      return
+    }
+
+    if (targetUser.role === 'SuperAdmin') {
+      const totalSuperAdmins = users.filter((user) => user.role === 'SuperAdmin').length
+      if (totalSuperAdmins <= 1) {
+        setNotice('No puedes borrar el ultimo SuperAdmin.')
+        return
+      }
+    }
+
+    const confirmed = window.confirm(`¿Eliminar a ${targetUser.name} (${targetUser.rut})? Esta acción no se puede deshacer.`)
+
+    if (!confirmed) {
+      return
+    }
+
+    setUsers((current) => current.filter((user) => user.id !== userId))
+
+    if (editingUserId === userId) {
+      setEditingUserId(null)
+    }
+
+    if (changingPasswordUserId === userId) {
+      setChangingPasswordUserId(null)
+    }
+
+    setNotice(`Usuario "${targetUser.name}" eliminado.`)
+  }
+
   function updateNewSchoolForm(field: keyof NewSchoolForm, value: string) {
     setNewSchoolForm((current) => ({
       ...current,
@@ -2670,6 +2767,43 @@ function App() {
     }
 
     setCategories((current) => current.filter((c) => c.id !== categoryId))
+    setEvents((current) => current.filter((event) => !(event.schoolId === school.id && event.category === target.label)))
+    setEventAttendance((current) =>
+      current.filter((attendance) => {
+        const event = events.find((e) => e.id === attendance.eventId)
+        return !(event && event.schoolId === school.id && event.category === target.label)
+      })
+    )
+    setAttendanceRecords((current) =>
+      current.filter((record) => !(record.schoolId === school.id && record.category === target.label))
+    )
+    setPayments((current) =>
+      current.filter((payment) => !(payment.schoolId === school.id && payment.category === target.label))
+    )
+
+    if (selectedCategory === target.label) {
+      setSelectedCategory(schoolCategories.filter((c) => c.id !== categoryId)[0]?.label ?? 'Todas')
+    }
+
+    if (attendanceCategory === target.label) {
+      setAttendanceCategory('')
+    }
+
+    if (selectedEventId) {
+      const selectedEventStillExists = events.some((event) => event.id === selectedEventId)
+      if (!selectedEventStillExists) {
+        setSelectedEventId('')
+      }
+    }
+
+    if (trainingForm.category === target.label) {
+      setTrainingForm((current) => ({ ...current, category: '' }))
+    }
+
+    if (matchForm.category === target.label) {
+      setMatchForm((current) => ({ ...current, category: '' }))
+    }
+
     setNotice(`Categoría "${target.label}" eliminada.`)
   }
 
@@ -3147,6 +3281,10 @@ function App() {
     )
   }
 
+  if (!isPersistenceReady) {
+    return <SplashScreen />
+  }
+
   if (authStep !== 'app' || !coach) {
     return (
       <AuthScreen
@@ -3168,6 +3306,7 @@ function App() {
         bulkUserText={bulkUserText}
         categories={categories}
         deleteSchool={deleteSchool}
+        deleteUser={deleteUser}
         editingUserId={editingUserId}
         logout={logout}
         newSchoolForm={newSchoolForm}
@@ -3254,7 +3393,7 @@ function App() {
         )}
         <header className="mobile-header">
           <button className="icon-button" onClick={() => navigateTo('panel')} type="button" aria-label="Ir al panel">
-            <Menu size={20} />
+            <Home size={20} />
           </button>
           <button className="mobile-brand" onClick={() => navigateTo('panel')} type="button" aria-label="Ir al panel">
             <img src={school.logo || adnIcon} alt="" />
@@ -3278,28 +3417,34 @@ function App() {
             </div>
           </div>
 
-          {activeView === 'alumnos' && (
-            <div className="topbar-actions">
-              {!isStudentPortal && !isFinance && (
-                <button className="ghost-button" onClick={() => navigateTo('alumnos')} type="button">
-                  <Search size={18} aria-hidden="true" />
-                  Buscar alumno
-                </button>
-              )}
-              {canSeeAll && (
-                <button className="ghost-button" onClick={openBulkImport} type="button">
-                  <Upload size={18} aria-hidden="true" />
-                  Carga masiva
-                </button>
-              )}
-              {canManageStudents && (
-                <button className="primary-button" onClick={openNewStudent} type="button">
-                  <Plus size={18} aria-hidden="true" />
-                  Nuevo alumno
-                </button>
-              )}
-            </div>
-          )}
+          <div className="topbar-logout-wrapper">
+            {activeView === 'alumnos' && (
+              <div className="topbar-actions">
+                {!isStudentPortal && !isFinance && (
+                  <button className="ghost-button" onClick={() => navigateTo('alumnos')} type="button">
+                    <Search size={18} aria-hidden="true" />
+                    Buscar alumno
+                  </button>
+                )}
+                {canSeeAll && (
+                  <button className="ghost-button" onClick={openBulkImport} type="button">
+                    <Upload size={18} aria-hidden="true" />
+                    Carga masiva
+                  </button>
+                )}
+                {canManageStudents && (
+                  <button className="primary-button" onClick={openNewStudent} type="button">
+                    <Plus size={18} aria-hidden="true" />
+                    Nuevo alumno
+                  </button>
+                )}
+              </div>
+            )}
+            <button className="logout-button topbar-logout" onClick={logout} type="button">
+              <LogOut size={16} aria-hidden="true" />
+              Salir
+            </button>
+          </div>
         </section>
 
         {notice && <div className="notice-banner">{notice}</div>}
@@ -3345,17 +3490,23 @@ function App() {
             canManageEvents={canUseAttendance}
             categoryOptions={categoryOptions}
             coach={coach}
+            createTrainingsConfirmed={createTrainingsConfirmed}
             deleteEvent={deleteEvent}
             eventAttendance={eventAttendance}
             events={schoolEvents}
+            eventModal={eventModal}
+            isCreatingTraining={isCreatingTraining}
             markEventAttendance={markEventAttendance}
             matchForm={matchForm}
             saveBulkEvents={saveBulkEvents}
             scopedStudents={scopedStudents}
             selectedEventId={selectedEventId}
+            setEventModal={setEventModal}
             setSelectedEventId={setSelectedEventId}
             setBulkEventText={setBulkEventText}
+            setTrainingConfirmOpen={setTrainingConfirmOpen}
             toggleTrainingWeekday={toggleTrainingWeekday}
+            trainingConfirmOpen={trainingConfirmOpen}
             trainingForm={trainingForm}
             updateEvent={updateEvent}
             updateMatchForm={updateMatchForm}
@@ -3439,6 +3590,7 @@ function App() {
             addSchoolUser={addSchoolUser}
             categories={schoolCategories}
             deleteCategory={deleteCategory}
+            deleteUser={deleteUser}
             newCategoryForm={newCategoryForm}
             school={school}
             schoolUserForm={schoolUserForm}
@@ -3532,6 +3684,10 @@ function App() {
             </button>
           )
         })}
+        <button className="logout-nav-button" onClick={logout} type="button" aria-label="Salir">
+          <LogOut size={19} aria-hidden="true" />
+          <span>Salir</span>
+        </button>
       </nav>
     </div>
   )
@@ -3630,6 +3786,7 @@ function SuperAdminPortal({
   setEditingUserId,
   toggleUserPermission,
   toggleUserStatus,
+  deleteUser,
   updateNewSchoolForm,
   updateNewUserForm,
   updateSchoolViews,
@@ -3666,6 +3823,7 @@ function SuperAdminPortal({
   updateSchoolViews: (schoolId: string, view: View, enabled: boolean) => void
   updateUserField: (userId: string, field: keyof Pick<User, 'name' | 'rut' | 'category' | 'schoolId' | 'status'>, value: string) => void
   updateUserRole: (userId: string, role: UserRole) => void
+  deleteUser: (userId: string) => void
   users: User[]
 }) {
   const [section, setSection] = useState<SuperAdminSection>('escuelas')
@@ -4153,6 +4311,10 @@ function SuperAdminPortal({
                           <button className="small-button" disabled={user.role === 'SuperAdmin'} onClick={() => toggleUserStatus(user.id)} type="button">
                             <Ban size={15} aria-hidden="true" />
                             {user.status === 'Bloqueado' ? 'Activar' : 'Bloquear'}
+                          </button>
+                          <button className="small-button danger-button" disabled={user.role === 'SuperAdmin'} onClick={() => deleteUser(user.id)} type="button">
+                            <Trash2 size={15} aria-hidden="true" />
+                            Borrar
                           </button>
                         </div>
                       </article>
@@ -4992,6 +5154,7 @@ function StudentsPage({
           Abrir perfil
         </button>
       </aside>
+
     </section>
   )
 }
@@ -5003,17 +5166,23 @@ function EventsPage({
   canManageEvents,
   categoryOptions,
   coach,
+  createTrainingsConfirmed,
   deleteEvent,
   eventAttendance,
+  eventModal,
   events,
+  isCreatingTraining,
   markEventAttendance,
   matchForm,
   saveBulkEvents,
   scopedStudents,
   selectedEventId,
+  setEventModal,
   setSelectedEventId,
   setBulkEventText,
+  setTrainingConfirmOpen,
   toggleTrainingWeekday,
+  trainingConfirmOpen,
   trainingForm,
   updateEvent,
   updateMatchForm,
@@ -5025,27 +5194,39 @@ function EventsPage({
   canManageEvents: boolean
   categoryOptions: string[]
   coach: User
+  createTrainingsConfirmed: () => Promise<void>
   deleteEvent: (eventId: string) => void
   eventAttendance: EventAttendance[]
+  eventModal: 'training' | 'match' | 'bulk' | 'edit' | null
   events: CalendarEvent[]
+  isCreatingTraining: boolean
   markEventAttendance: (eventId: string, student: Student, status: EventAttendanceStatus) => void
   matchForm: NewMatchForm
   saveBulkEvents: (event: FormEvent<HTMLFormElement>) => void
   scopedStudents: Student[]
   selectedEventId: string
+  setEventModal: (value: 'training' | 'match' | 'bulk' | 'edit' | null) => void
   setSelectedEventId: (eventId: string) => void
   setBulkEventText: (value: string) => void
+  setTrainingConfirmOpen: (value: boolean) => void
   toggleTrainingWeekday: (day: string) => void
+  trainingConfirmOpen: boolean
   trainingForm: NewTrainingForm
-  updateEvent: (eventId: string, fields: Partial<Pick<CalendarEvent, 'title' | 'date' | 'time' | 'location' | 'opponent' | 'category'>>) => void
+  updateEvent: (eventId: string, fields: Partial<Pick<CalendarEvent, 'title' | 'date' | 'time' | 'location' | 'opponent' | 'category' | 'endTime'>>) => void
   updateMatchForm: (field: keyof NewMatchForm, value: string) => void
   updateTrainingForm: (field: keyof NewTrainingForm, value: string) => void
 }) {
-  const [eventModal, setEventModal] = useState<'training' | 'match' | 'bulk' | 'edit' | null>(null)
   const [editForm, setEditForm] = useState<{ title: string; date: string; time: string; location: string; opponent: string; category: string }>({
     title: '', date: '', time: '', location: '', opponent: '', category: '',
   })
-  const eventCategories = categoryOptions.length ? categoryOptions : ['Todas']
+  const eventCategories = categoryOptions.filter((category) => category !== 'Todas')
+  const availableCategories = eventCategories.length ? eventCategories : categoryOptions
+  useEffect(() => {
+    if (availableCategories.length && !availableCategories.includes(trainingForm.category)) {
+      updateTrainingForm('category', availableCategories[0])
+    }
+  }, [availableCategories, trainingForm.category, updateTrainingForm])
+
   const selectedEvent = events.find((event) => event.id === selectedEventId) ?? events[0]
   const eventRoster = selectedEvent
     ? scopedStudents.filter((student) => selectedEvent.category === 'Todas' || student.category === selectedEvent.category)
@@ -5086,7 +5267,7 @@ function EventsPage({
                 </div>
                 <div>
                   <b>{formatEventDate(event.date)}</b>
-                  <span>{event.time}</span>
+                  <span>{event.time}{event.endTime ? ` - ${event.endTime}` : ''}</span>
                 </div>
               </button>
               {canManageEvents && (
@@ -5164,7 +5345,7 @@ function EventsPage({
             <h2>{selectedEvent?.title ?? 'Selecciona un evento'}</h2>
             {selectedEvent && (
               <p>
-                {selectedEvent.category} - {formatEventDate(selectedEvent.date)} - {selectedEvent.time}
+                {selectedEvent.category} - {formatEventDate(selectedEvent.date)} - {selectedEvent.time}{selectedEvent.endTime ? ` - ${selectedEvent.endTime}` : ''}
                 {selectedEvent.opponent ? ` - Rival: ${selectedEvent.opponent}` : ''}
               </p>
             )}
@@ -5248,7 +5429,7 @@ function EventsPage({
                 <label className="form-field">
                   <span>Categoria</span>
                   <select onChange={(event) => updateTrainingForm('category', event.target.value)} value={trainingForm.category}>
-                    {eventCategories.map((category) => (
+                    {availableCategories.map((category) => (
                       <option key={category}>{category}</option>
                     ))}
                   </select>
@@ -5271,17 +5452,21 @@ function EventsPage({
                     <input onChange={(event) => updateTrainingForm('time', event.target.value)} type="time" value={trainingForm.time} />
                   </label>
                   <label className="form-field">
-                    <span>Cancha</span>
-                    <input onChange={(event) => updateTrainingForm('location', event.target.value)} value={trainingForm.location} />
+                    <span>Hasta</span>
+                    <input onChange={(event) => updateTrainingForm('endTime', event.target.value)} type="time" value={trainingForm.endTime} />
                   </label>
                 </div>
+                <label className="form-field">
+                  <span>Cancha</span>
+                  <input onChange={(event) => updateTrainingForm('location', event.target.value)} value={trainingForm.location} />
+                </label>
                 <div className="modal-actions">
                   <button className="ghost-button" onClick={() => setEventModal(null)} type="button">
                     Cancelar
                   </button>
-                  <button className="primary-button" type="submit">
+                  <button className="primary-button" type="submit" disabled={isCreatingTraining}>
                     <CalendarCheck size={18} aria-hidden="true" />
-                    Crear entrenamientos
+                    {isCreatingTraining ? 'Creando...' : 'Crear entrenamientos'}
                   </button>
                 </div>
               </form>
@@ -5300,7 +5485,7 @@ function EventsPage({
                 <label className="form-field">
                   <span>Categoria</span>
                   <select onChange={(event) => updateMatchForm('category', event.target.value)} value={matchForm.category}>
-                    {eventCategories.map((category) => (
+                    {availableCategories.map((category) => (
                       <option key={category}>{category}</option>
                     ))}
                   </select>
@@ -5392,7 +5577,7 @@ function EventsPage({
                     onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
                     value={editForm.category}
                   >
-                    {eventCategories.map((cat) => (
+                    {availableCategories.map((cat) => (
                       <option key={cat}>{cat}</option>
                     ))}
                   </select>
@@ -5445,6 +5630,60 @@ function EventsPage({
           </section>
         </div>
       )}
+
+    {trainingConfirmOpen && (
+      <div className="modal-backdrop" role="presentation" onClick={() => !isCreatingTraining && setTrainingConfirmOpen(false)}>
+        <section 
+          className="modal-box" 
+          role="dialog" 
+          aria-modal="true" 
+          aria-labelledby="training-confirm-title"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="modal-header">
+            <div>
+              <span className="panel-kicker">Confirmar acción</span>
+              <h3 id="training-confirm-title">Confirmar creación de entrenamientos</h3>
+            </div>
+            <button 
+              className="icon-button" 
+              onClick={() => setTrainingConfirmOpen(false)} 
+              type="button" 
+              aria-label="Cerrar"
+              disabled={isCreatingTraining}
+            >
+              <XCircle size={20} aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="modal-body">
+            <p>¿Desea crear estos entrenamientos?</p>
+            <p style={{fontSize: '0.9em', color: '#666', marginTop: '0.5em'}}>
+              Se crearán entrenamientos para los días seleccionados en {trainingForm.month} de {trainingForm.time} a {trainingForm.endTime}.
+            </p>
+          </div>
+
+          <div className="modal-actions">
+            <button 
+              className="ghost-button" 
+              onClick={() => setTrainingConfirmOpen(false)} 
+              type="button"
+              disabled={isCreatingTraining}
+            >
+              Cancelar
+            </button>
+            <button 
+              className="primary-button" 
+              onClick={() => createTrainingsConfirmed()} 
+              type="button" 
+              disabled={isCreatingTraining}
+            >
+              {isCreatingTraining ? 'Creando entrenamientos...' : 'Crear'}
+            </button>
+          </div>
+        </section>
+      </div>
+    )}
     </section>
   )
 }
@@ -6290,6 +6529,7 @@ function SchoolManagementPage({
   addSchoolUser,
   categories,
   deleteCategory,
+  deleteUser,
   newCategoryForm,
   school,
   schoolUserForm,
@@ -6301,6 +6541,7 @@ function SchoolManagementPage({
   addSchoolUser: (event: FormEvent<HTMLFormElement>) => void
   categories: Category[]
   deleteCategory: (categoryId: string) => void
+  deleteUser: (userId: string) => void
   newCategoryForm: NewCategoryForm
   school: School
   schoolUserForm: NewUserForm
@@ -6341,6 +6582,14 @@ function SchoolManagementPage({
                   <small>RUT: {user.rut} - {user.status}</small>
                 </div>
                 <span className={`status ${getStatusClass(user.status)}`}>{user.status}</span>
+                <button
+                  className="small-button danger-button"
+                  onClick={() => deleteUser(user.id)}
+                  type="button"
+                  aria-label={`Borrar usuario ${user.name}`}
+                >
+                  <Trash2 size={14} aria-hidden="true" />
+                </button>
               </article>
             ))}
             {!users.length && <p className="helper-text">No hay usuarios creados. Ve a "Crear usuario" para agregar uno.</p>}

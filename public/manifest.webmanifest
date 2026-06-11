@@ -1,0 +1,20 @@
+{
+  "name": "ADN Fútbol",
+  "short_name": "ADN Fútbol",
+  "description": "Gestión deportiva para escuelas de fútbol.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#061209",
+  "theme_color": "#087A25",
+  "orientation": "portrait",
+  "categories": ["sports", "education"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
