@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { Directory, Filesystem } from '@capacitor/filesystem'
+import { Share } from '@capacitor/share'
 import {
   Bell,
   Ban,
@@ -41,6 +44,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import bundledState from '../data/adnfutbol-state.json'
 import adnIcon from './assets/adn-futbol-icon.svg'
 import './App.css'
 
@@ -89,6 +93,7 @@ type User = {
 type NavItem = {
   id: View
   label: string
+  description: string
   icon: LucideIcon
 }
 
@@ -300,6 +305,14 @@ type NewTrainingForm = {
   location: string
 }
 
+type SingleTrainingForm = {
+  date: string
+  time: string
+  endTime: string
+  category: string
+  location: string
+}
+
 type NewMatchForm = {
   title: string
   date: string
@@ -321,6 +334,10 @@ type StoredAppState = {
   events: CalendarEvent[]
   eventAttendance: EventAttendance[]
 }
+
+const bundledInitialState = bundledState as StoredAppState
+const bundledDefaultSchoolId = bundledInitialState.schools[0]?.id ?? 'los-cracks'
+const bundledSuperAdmin = bundledInitialState.users.find((user) => user.role === 'SuperAdmin')
 
 const initialSchools: School[] = [
   {
@@ -425,16 +442,16 @@ const demoUsers: User[] = [
 ]
 
 const navItems: NavItem[] = [
-  { id: 'panel', label: 'Panel', icon: LayoutDashboard },
-  { id: 'alumnos', label: 'Alumnos', icon: Users },
-  { id: 'eventos', label: 'Eventos', icon: CalendarCheck },
-  { id: 'asistencia', label: 'Asistencia', icon: ClipboardCheck },
-  { id: 'pagos', label: 'Pagos', icon: WalletCards },
-  { id: 'finanzas', label: 'Finanzas', icon: CircleDollarSign },
-  { id: 'balance', label: 'Balance', icon: HandCoins },
-  { id: 'gestion', label: 'Gestion', icon: UserCog },
-  { id: 'mensajes', label: 'Mensajes', icon: MessageCircle },
-  { id: 'perfil', label: 'Perfil', icon: UserRound },
+  { id: 'panel', label: 'Dashboard', description: 'Resumen de la jornada', icon: LayoutDashboard },
+  { id: 'alumnos', label: 'Alumnos', description: 'Fichas y categorías', icon: Users },
+  { id: 'asistencia', label: 'Asistencia', description: 'Control diario', icon: ClipboardCheck },
+  { id: 'eventos', label: 'Entrenamientos', description: 'Agenda y partidos', icon: CalendarCheck },
+  { id: 'pagos', label: 'Pagos', description: 'Mensualidades', icon: WalletCards },
+  { id: 'balance', label: 'Gastos', description: 'Ingresos y egresos', icon: HandCoins },
+  { id: 'finanzas', label: 'Reportes', description: 'Indicadores y PDF', icon: BarChart3 },
+  { id: 'gestion', label: 'Configuración', description: 'Usuarios y categorías', icon: UserCog },
+  { id: 'mensajes', label: 'Mensajes', description: 'Comunicación rápida', icon: MessageCircle },
+  { id: 'perfil', label: 'Perfil', description: 'Cuenta y ficha', icon: UserRound },
 ]
 
 const viewCopy: Record<View, { eyebrow: string; title: string; description: string }> = {
@@ -930,34 +947,6 @@ function escapeXml(value: string) {
     .replace(/'/g, '&apos;')
 }
 
-function getReportExcelRows(report: ReportResult) {
-  const detailRows = report.rows.length
-    ? report.rows.map((row, index) => [
-        String(index + 1),
-        row.label,
-        row.detail,
-        row.amount ?? '',
-        row.status ?? '',
-      ])
-    : [['', 'Sin registros para los filtros seleccionados.', '', '', '']]
-
-  return [
-    ['ADNFutbol', report.title],
-    ['Filtro', report.subtitle],
-    ['Generado', report.generatedAt],
-    [],
-    ['Resumen', report.summary],
-    [],
-    ['Totales'],
-    ['Concepto', 'Valor'],
-    ...report.totals.map((total) => [total.label, total.value]),
-    [],
-    ['Detalle'],
-    ['#', 'Item', 'Detalle', 'Monto', 'Estado'],
-    ...detailRows,
-  ]
-}
-
 function buildWorksheetXml(rows: string[][]) {
   const maxColumns = Math.max(...rows.map((row) => row.length), 1)
   const dimension = `A1:${getExcelColumnName(maxColumns)}${rows.length || 1}`
@@ -1061,10 +1050,6 @@ function createZipBlob(entries: Array<{ name: string; content: string }>) {
   })
 }
 
-function buildReportWorkbook(report: ReportResult) {
-  return buildWorkbook('Reporte', getReportExcelRows(report))
-}
-
 function buildWorkbook(sheetName: string, rows: string[][]) {
   const worksheet = buildWorksheetXml(rows)
   const safeSheetName = escapeXml(sheetName.replace(/[\\/?*[\]:]/g, '').slice(0, 31) || 'Hoja 1')
@@ -1121,7 +1106,7 @@ function buildBulkUserTemplateWorkbook(schools: School[], categories: Category[]
     ['RUT', 'Usa formato 11111111-1, sin puntos.'],
     [],
     ['Nombre', 'RUT', 'Rol', 'ID escuela', 'Categoria', 'Clave'],
-    ['Carlos Soto', '66666666-6', 'DT', firstSchool?.id ?? 'id-escuela', firstCategory?.label ?? 'Sub 8', 'demo123'],
+    ['Carlos Soto', '66666666-6', 'DT', firstSchool?.id ?? 'id-escuela', firstCategory?.label ?? 'Categoria', 'demo123'],
     ['Andrea Mella', '77777777-7', 'Finanzas', firstSchool?.id ?? 'id-escuela', 'Todas', 'demo123'],
     ['Camila Fuentes', '88888888-8', 'Director', firstSchool?.id ?? 'id-escuela', 'Todas', 'demo123'],
     [],
@@ -1137,7 +1122,7 @@ function buildBulkUserTemplateWorkbook(schools: School[], categories: Category[]
   return buildWorkbook('Plantilla usuarios', rows)
 }
 
-function getReportFileName(report: ReportResult) {
+function getReportPdfFileName(report: ReportResult) {
   const slug = `${report.kind}-${report.subtitle}`
     .toLowerCase()
     .normalize('NFD')
@@ -1145,7 +1130,74 @@ function getReportFileName(report: ReportResult) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
 
-  return `${slug || 'reporte-adnfutbol'}.xlsx`
+  return `${slug || 'reporte-adnfutbol'}.pdf`
+}
+
+function buildReportPdf(report: ReportResult) {
+  const normalizePdfText = (value: string) =>
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^\x20-\x7E]/g, '')
+  const wrapLine = (value: string, maxLength = 92) => {
+    const words = normalizePdfText(value).split(/\s+/)
+    const lines: string[] = []
+    let current = ''
+
+    words.forEach((word) => {
+      const next = current ? `${current} ${word}` : word
+      if (next.length > maxLength && current) {
+        lines.push(current)
+        current = word
+      } else {
+        current = next
+      }
+    })
+
+    if (current) lines.push(current)
+    return lines.length ? lines : ['']
+  }
+  const escapePdfText = (value: string) => value.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
+  const lines = report.text.split('\n').flatMap((line) => wrapLine(line))
+  const pages = Array.from({ length: Math.max(1, Math.ceil(lines.length / 48)) }, (_, index) => lines.slice(index * 48, index * 48 + 48))
+  const objects: string[] = []
+  const pageObjectNumbers = pages.map((_, index) => 4 + index * 2)
+
+  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>'
+  objects[2] = `<< /Type /Pages /Kids [${pageObjectNumbers.map((number) => `${number} 0 R`).join(' ')}] /Count ${pages.length} >>`
+  objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+
+  pages.forEach((pageLines, index) => {
+    const pageNumber = 4 + index * 2
+    const contentNumber = pageNumber + 1
+    const content = `BT\n/F1 10 Tf\n45 750 Td\n13 TL\n${pageLines.map((line) => `(${escapePdfText(line)}) Tj\nT*`).join('\n')}\nET`
+    objects[pageNumber] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentNumber} 0 R >>`
+    objects[contentNumber] = `<< /Length ${content.length} >>\nstream\n${content}\nendstream`
+  })
+
+  let pdf = '%PDF-1.4\n'
+  const offsets: number[] = [0]
+  for (let index = 1; index < objects.length; index += 1) {
+    offsets[index] = pdf.length
+    pdf += `${index} 0 obj\n${objects[index]}\nendobj\n`
+  }
+  const xrefOffset = pdf.length
+  pdf += `xref\n0 ${objects.length}\n0000000000 65535 f \n`
+  for (let index = 1; index < objects.length; index += 1) {
+    pdf += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`
+  }
+  pdf += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+
+  return new Blob([pdf], { type: 'application/pdf' })
+}
+
+function blobToBase64(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.addEventListener('load', () => resolve(String(reader.result).split(',')[1] ?? ''))
+    reader.addEventListener('error', () => reject(reader.error ?? new Error('No se pudo convertir el PDF.')))
+    reader.readAsDataURL(blob)
+  })
 }
 
 function normalizeRut(value: string) {
@@ -1274,6 +1326,23 @@ function buildEmptyTrainingForm(category = ''): NewTrainingForm {
   }
 }
 
+function buildEmptySingleTrainingForm(category = ''): SingleTrainingForm {
+  const today = new Date()
+  const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+  return {
+    date,
+    time: '18:00',
+    endTime: '19:30',
+    category,
+    location: 'Cancha 1',
+  }
+}
+
+function categoriesMatch(first: string, second: string) {
+  return first.trim().toLocaleLowerCase('es-CL') === second.trim().toLocaleLowerCase('es-CL')
+}
+
 function buildEmptyMatchForm(category = ''): NewMatchForm {
   return {
     title: 'Partido amistoso',
@@ -1291,6 +1360,11 @@ function formatEventDate(date: string) {
     month: 'short',
     weekday: 'short',
   })
+}
+
+function getTodayValue() {
+  const today = new Date()
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 }
 
 const chileanRegions = [
@@ -1354,7 +1428,7 @@ function buildEmptyStudentForm(category: string): NewStudentForm {
   return {
     name: '',
     rut: '',
-    category: category === 'Todas' ? 'Sub 8' : category,
+    category: category === 'Todas' ? '' : category,
     guardian: '',
     phone: '',
     position: 'Volante',
@@ -1388,14 +1462,14 @@ function buildEmptySchoolForm(): NewSchoolForm {
   }
 }
 
-function buildEmptyUserForm(schoolId = initialSchools[0].id): NewUserForm {
+function buildEmptyUserForm(schoolId = bundledDefaultSchoolId): NewUserForm {
   return {
     name: 'Nuevo usuario escuela',
     rut: '55555555-5',
     password: 'demo123',
     role: 'DT',
     schoolId,
-    category: 'Sub 8',
+    category: '',
   }
 }
 
@@ -1467,8 +1541,8 @@ function getDefaultPermissions(role: UserRole, category: string) {
   return permissions[role]
 }
 
-const storedAppKey = 'adnfutbol-state-v1'
-const storedSessionKey = 'adnfutbol-session-v1'
+const storedAppKey = 'adnfutbol-state-v2'
+const storedSessionKey = 'adnfutbol-session-v2'
 
 function loadStoredSession(): User | null {
   if (typeof window === 'undefined') return null
@@ -1491,14 +1565,14 @@ function saveStoredSession(user: User | null) {
 
 function loadStoredAppState(): Partial<StoredAppState> {
   if (typeof window === 'undefined') {
-    return {}
+    return bundledInitialState
   }
 
   try {
     const rawState = window.localStorage.getItem(storedAppKey)
 
     if (!rawState) {
-      return {}
+      return bundledInitialState
     }
 
     const state = JSON.parse(rawState) as Partial<StoredAppState>
@@ -1507,24 +1581,24 @@ function loadStoredAppState(): Partial<StoredAppState> {
       ...state,
       attendanceRecords: state.attendanceRecords?.map((record) => ({
         ...record,
-        schoolId: record.schoolId ?? 'los-cracks',
+        schoolId: record.schoolId ?? bundledDefaultSchoolId,
       })),
       eventAttendance: state.eventAttendance ?? [],
       events: state.events?.map((event) => ({
         ...event,
-        schoolId: event.schoolId ?? 'los-cracks',
+        schoolId: event.schoolId ?? bundledDefaultSchoolId,
       })),
       payments: state.payments?.map((payment) => ({
         ...payment,
-        schoolId: payment.schoolId ?? 'los-cracks',
+        schoolId: payment.schoolId ?? bundledDefaultSchoolId,
       })),
       students: state.students?.map((student) => ({
         ...student,
-        schoolId: student.schoolId ?? 'los-cracks',
+        schoolId: student.schoolId ?? bundledDefaultSchoolId,
       })),
     }
   } catch {
-    return {}
+    return bundledInitialState
   }
 }
 
@@ -1584,19 +1658,37 @@ function App() {
   const [storedState] = useState(() => loadStoredAppState())
   const [isPersistenceReady, setIsPersistenceReady] = useState(false)
   const [authStep, setAuthStep] = useState<AuthStep>(() => (loadStoredSession() ? 'app' : 'credentials'))
-  const [loginRut, setLoginRut] = useState('99999999-9')
-  const [password, setPassword] = useState('demo123')
+  const [loginRut, setLoginRut] = useState(bundledSuperAdmin?.rut ?? '')
+  const [password, setPassword] = useState(bundledSuperAdmin?.password ?? '')
   const [coach, setCoach] = useState<User | null>(() => loadStoredSession())
   const [authNotice, setAuthNotice] = useState('')
   const [schools, setSchools] = useState<School[]>(() => storedState.schools ?? initialSchools)
   const [newSchoolForm, setNewSchoolForm] = useState<NewSchoolForm>(() => buildEmptySchoolForm())
   const [users, setUsers] = useState<User[]>(() => storedState.users ?? demoUsers)
   const [newUserForm, setNewUserForm] = useState<NewUserForm>(() => buildEmptyUserForm())
-  const [schoolUserForm, setSchoolUserForm] = useState<NewUserForm>(() => buildEmptyUserForm('los-cracks'))
+  const [schoolUserForm, setSchoolUserForm] = useState<NewUserForm>(() => buildEmptyUserForm())
   const [bulkUserText, setBulkUserText] = useState('')
   const [superAdminPreviewSchoolId, setSuperAdminPreviewSchoolId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<View>('panel')
   const [students, setStudents] = useState<Student[]>(() => storedState.students ?? initialStudents)
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null)
+  const deleteStudent = (id: number) => {
+    const student = students.find((item) => item.id === id)
+    const confirmDelete = window.confirm(`¿Eliminar a ${student?.name ?? 'este alumno'}? Esta acción no se puede deshacer.`)
+    if (!confirmDelete) return
+
+    setStudents((current) => current.filter((student) => student.id !== id))
+    setNotice(`${student?.name ?? 'El alumno'} fue eliminado.`)
+  }
+  const saveEditedStudent = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!editingStudent) return
+    if (!window.confirm(`¿Guardar los cambios de ${editingStudent.name}?`)) return
+
+    setStudents((current) => current.map((student) => student.id === editingStudent.id ? editingStudent : student))
+    setNotice(`Los datos de ${editingStudent.name} fueron actualizados.`)
+    setEditingStudent(null)
+  }
   const [categories, setCategories] = useState<Category[]>(() => storedState.categories ?? initialCategories)
   const [newCategoryForm, setNewCategoryForm] = useState<NewCategoryForm>(() => buildEmptyCategoryForm())
   const [expenses, setExpenses] = useState<Expense[]>(() => storedState.expenses ?? initialExpenses)
@@ -1605,31 +1697,32 @@ function App() {
   const [newIncomeForm, setNewIncomeForm] = useState<NewIncomeForm>(() => buildEmptyIncomeForm())
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('Todas')
-  const [attendanceCategory, setAttendanceCategory] = useState('Sub 8')
   const [attendanceRecords, setAttendanceRecords] = useState<Attendance[]>(() => storedState.attendanceRecords ?? initialAttendanceList)
   const [payments, setPayments] = useState<Payment[]>(() => storedState.payments ?? initialPaymentList)
   const [events, setEvents] = useState<CalendarEvent[]>(() => storedState.events ?? initialEvents)
   const [eventAttendance, setEventAttendance] = useState<EventAttendance[]>(() => storedState.eventAttendance ?? initialEventAttendance)
-  const [selectedEventId, setSelectedEventId] = useState(initialEvents[0]?.id ?? '')
-  const [eventModal, setEventModal] = useState<'training' | 'match' | 'bulk' | 'edit' | null>(null)
+  const [selectedEventId, setSelectedEventId] = useState(bundledInitialState.events[0]?.id ?? initialEvents[0]?.id ?? '')
+  const [eventModal, setEventModal] = useState<'training' | 'single-training' | 'match' | 'bulk' | 'edit' | null>(null)
   const [trainingForm, setTrainingForm] = useState<NewTrainingForm>(() => buildEmptyTrainingForm())
+  const [singleTrainingForm, setSingleTrainingForm] = useState<SingleTrainingForm>(() => buildEmptySingleTrainingForm())
   const [trainingConfirmOpen, setTrainingConfirmOpen] = useState(false)
   const [isCreatingTraining, setIsCreatingTraining] = useState(false)
   const [matchForm, setMatchForm] = useState<NewMatchForm>(() => buildEmptyMatchForm())
   const [bulkEventText, setBulkEventText] = useState('')
   const [paymentFilter, setPaymentFilter] = useState<PaymentStatus | 'Todos'>('Todos')
   const [financeStatusFilter, setFinanceStatusFilter] = useState<PaymentStatus | 'Todos'>('Todos')
-  const [reportDate, setReportDate] = useState('2026-04-25')
+  const [reportDate, setReportDate] = useState(getTodayValue)
   const [reportCategory, setReportCategory] = useState('Todas')
   const [generatedReport, setGeneratedReport] = useState<ReportResult | null>(null)
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
   const [selectedTemplateId, setSelectedTemplateId] = useState(messageTemplates[1].id)
-  const [selectedStudentId, setSelectedStudentId] = useState(initialStudents[0].id)
-  const [selectedPlayerId, setSelectedPlayerId] = useState(initialStudents[0].id)
+  const [selectedStudentId, setSelectedStudentId] = useState(bundledInitialState.students[0]?.id ?? initialStudents[0].id)
+  const [selectedPlayerId, setSelectedPlayerId] = useState(bundledInitialState.students[0]?.id ?? initialStudents[0].id)
   const [messageMode, setMessageMode] = useState<MessageMode>('individual')
   const [bulkCategory, setBulkCategory] = useState('Todas')
   const [isStudentFormOpen, setIsStudentFormOpen] = useState(false)
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false)
-  const [studentForm, setStudentForm] = useState<NewStudentForm>(() => buildEmptyStudentForm('Sub 8'))
+  const [studentForm, setStudentForm] = useState<NewStudentForm>(() => buildEmptyStudentForm(''))
   const [bulkImportText, setBulkImportText] = useState('')
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
   const [changingPasswordUserId, setChangingPasswordUserId] = useState<string | null>(null)
@@ -1741,6 +1834,10 @@ function App() {
         .sort((first, second) => `${first.date} ${first.time}`.localeCompare(`${second.date} ${second.time}`)),
     [events, school.id],
   )
+  const nextSchoolEvent = useMemo(() => {
+    const nowKey = `${getTodayValue()} ${new Date().toTimeString().slice(0, 5)}`
+    return schoolEvents.find((event) => `${event.date} ${event.time}` >= nowKey) ?? null
+  }, [schoolEvents])
   const emptyStudent = useMemo<Student>(
     () => ({
       id: 0,
@@ -1804,7 +1901,6 @@ function App() {
     return schoolCategories.filter((category) => category.label === allowedCategory)
   }, [allowedCategory, canSeeAll, coach, schoolCategories])
 
-  const copy = viewCopy[activeView]
   const selectedTemplate = messageTemplates.find((template) => template.id === selectedTemplateId) ?? messageTemplates[0]
   const messageTarget = scopedStudents.find((student) => student.id === selectedStudentId) ?? scopedStudents[0] ?? emptyStudent
   const selectedPlayer = scopedStudents.find((student) => student.id === selectedPlayerId) ?? scopedStudents[0] ?? emptyStudent
@@ -1822,47 +1918,50 @@ function App() {
   }, [allowedCategory, canSeeAll, coach, isStudentPortal, schoolCategories])
 
   const roleNavItems = useMemo(() => {
+    const enabledBySchool = school.enabledViews ?? navItems.map((item) => item.id)
+    let enabledByRole: View[]
+
     if (coach?.role === 'Director') {
-      const allowed = school.enabledViews ?? navItems.map((item) => item.id)
-      return navItems.filter((item) => allowed.includes(item.id))
+      enabledByRole = navItems.map((item) => item.id)
+    } else if (coach?.role === 'DT') {
+      enabledByRole = ['panel', 'alumnos', 'eventos', 'asistencia', 'mensajes', 'perfil']
+    } else if (isFinance) {
+      enabledByRole = ['panel', 'finanzas', 'balance', 'pagos', 'mensajes', 'perfil']
+    } else if (isStudentPortal) {
+      enabledByRole = ['eventos', 'perfil', 'pagos', 'mensajes']
+    } else {
+      enabledByRole = navItems.filter((item) => item.id !== 'finanzas' || canUseFinance).map((item) => item.id)
     }
 
-    if (coach?.role === 'DT') {
-      return navItems.filter((item) => ['panel', 'alumnos', 'eventos', 'asistencia', 'mensajes', 'perfil'].includes(item.id))
-    }
+    return navItems.filter((item) => enabledByRole.includes(item.id) && enabledBySchool.includes(item.id))
+  }, [canUseFinance, coach?.role, isFinance, isStudentPortal, school.enabledViews])
 
-    if (isFinance) {
-      return navItems.filter((item) => ['panel', 'finanzas', 'balance', 'pagos', 'mensajes', 'perfil'].includes(item.id))
-    }
-
-    if (isStudentPortal) {
-      return navItems.filter((item) => ['eventos', 'perfil', 'pagos', 'mensajes'].includes(item.id))
-    }
-
-    return navItems.filter((item) => item.id !== 'finanzas' || canUseFinance)
-  }, [canUseFinance, coach?.role, isFinance, isStudentPortal])
+  const canViewStudents = canSeeStudents && roleNavItems.some((item) => item.id === 'alumnos')
+  const canViewAttendance = canUseAttendance && roleNavItems.some((item) => item.id === 'asistencia')
+  const canViewFinance = canUseFinance && roleNavItems.some((item) => item.id === 'pagos')
+  const canViewEvents = roleNavItems.some((item) => item.id === 'eventos')
+  const canViewMessages = roleNavItems.some((item) => item.id === 'mensajes')
+  const visibleActiveView = roleNavItems.some((item) => item.id === activeView) ? activeView : roleNavItems[0]?.id ?? 'panel'
+  const copy = viewCopy[visibleActiveView]
 
   const filteredStudents = useMemo(() => {
     const query = searchTerm.trim().toLowerCase()
 
     return scopedStudents.filter((student) => {
-      const matchesCategory = selectedCategory === 'Todas' || student.category === selectedCategory
+      const matchesCategory =
+  selectedCategory === 'Todas' ||
+  student.category?.toLowerCase().trim() === selectedCategory.toLowerCase().trim()
       const matchesSearch =
         !query ||
         student.name.toLowerCase().includes(query) ||
         student.rut.toLowerCase().includes(query) ||
         student.guardian.toLowerCase().includes(query) ||
-        student.category.toLowerCase().includes(query) ||
+        student.category?.toLowerCase().includes(query) ||
         student.position.toLowerCase().includes(query)
 
       return matchesCategory && matchesSearch
     })
   }, [scopedStudents, searchTerm, selectedCategory])
-
-  const attendanceForCategory = useMemo(
-    () => scopedAttendance.filter((record) => record.category === attendanceCategory),
-    [attendanceCategory, scopedAttendance],
-  )
 
   const visiblePayments = useMemo(() => {
     if (paymentFilter === 'Todos') {
@@ -1880,8 +1979,9 @@ function App() {
     return scopedStudents.filter((student) => student.category === bulkCategory)
   }, [bulkCategory, scopedStudents])
 
-  const presentToday = scopedAttendance.filter((record) => record.status === 'Presente').length
-  const attendancePercentage = scopedAttendance.length ? Math.round((presentToday / scopedAttendance.length) * 100) : 0
+  const attendanceToday = scopedAttendance.filter((record) => record.date === getTodayValue())
+  const presentToday = attendanceToday.filter((record) => record.status === 'Presente').length
+  const attendancePercentage = attendanceToday.length ? Math.round((presentToday / attendanceToday.length) * 100) : 0
   const pendingPayments = scopedPayments.filter((payment) => payment.status !== 'Pagado')
   const individualMessage = `${selectedTemplate.body}\n\nApoderado: ${messageTarget.guardian}`
   const bulkMessage = `${selectedTemplate.body}\n\n${school.name} - ${bulkCategory === 'Todas' ? 'Todas las categorias' : bulkCategory}`
@@ -1964,7 +2064,6 @@ function App() {
 
     setActiveView(foundCoach.role === 'Finanzas' ? 'finanzas' : foundCoach.role === 'Alumno' ? 'perfil' : 'panel')
     setSelectedCategory(firstCategory)
-    setAttendanceCategory(firstCategory === 'Todas' ? 'Sub 8' : firstCategory)
     setBulkCategory(firstCategory)
     setSchoolUserForm(buildEmptyUserForm(foundCoach.schoolId ?? schools[0]?.id))
 
@@ -1994,35 +2093,9 @@ function App() {
 
     setActiveView(view)
     setNotice('')
-  }
-
-  function markAttendance(id: number, status: AttendanceStatus) {
-    setAttendanceRecords((records) =>
-      records.map((record) => {
-        if (record.id !== id) {
-          return record
-        }
-
-        const timeByStatus: Record<AttendanceStatus, string> = {
-          Presente: 'Ahora',
-          Ausente: 'Sin aviso',
-          Justificado: 'Aviso apoderado',
-          Pendiente: 'Sin marcar',
-        }
-
-        return { ...record, status, time: timeByStatus[status] }
-      }),
-    )
-  }
-
-  function markCategoryAsPresent() {
-    setAttendanceRecords((records) =>
-      records.map((record) =>
-        record.schoolId === school.id && record.category === attendanceCategory
-          ? { ...record, status: 'Presente', time: 'Ahora' }
-          : record,
-      ),
-    )
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('.main-area')?.scrollTo({ top: 0, behavior: 'smooth' })
+    })
   }
 
   function markPayment(id: number, status: PaymentStatus) {
@@ -2031,6 +2104,10 @@ function App() {
 
   function updateTrainingForm(field: keyof NewTrainingForm, value: string) {
     setTrainingForm((current) => ({ ...current, [field]: value }))
+  }
+
+  function updateSingleTrainingForm(field: keyof SingleTrainingForm, value: string) {
+    setSingleTrainingForm((current) => ({ ...current, [field]: value }))
   }
 
   function toggleTrainingWeekday(day: string) {
@@ -2061,7 +2138,7 @@ function App() {
       return
     }
 
-    if (!schoolCategories.some((category) => category.label === trainingForm.category)) {
+    if (trainingForm.category !== 'Todas' && !schoolCategories.some((category) => category.label === trainingForm.category)) {
       setNotice('Selecciona una categoria valida para crear entrenamientos.')
       return
     }
@@ -2126,11 +2203,108 @@ function App() {
       setTrainingConfirmOpen(false)
       setEventModal(null)
       setActiveView('eventos')
-    } catch (err) {
+    } catch {
       setNotice('Error creando entrenamientos. Revisa tu conexion o intenta de nuevo.')
     } finally {
       setIsCreatingTraining(false)
     }
+  }
+
+  function addSingleTraining(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!singleTrainingForm.date || !singleTrainingForm.time || !singleTrainingForm.endTime || !singleTrainingForm.category) {
+      setNotice('Selecciona fecha, horario y categoria para crear el entrenamiento.')
+      return
+    }
+
+    if (singleTrainingForm.category !== 'Todas' && !schoolCategories.some((category) => category.label === singleTrainingForm.category)) {
+      setNotice('Selecciona una categoria valida para crear el entrenamiento.')
+      return
+    }
+
+    if (singleTrainingForm.endTime <= singleTrainingForm.time) {
+      setNotice('La hora de término debe ser posterior a la hora de inicio.')
+      return
+    }
+
+    const duplicate = events.some(
+      (item) =>
+        item.schoolId === school.id &&
+        item.type === 'Entrenamiento' &&
+        item.category === singleTrainingForm.category &&
+        item.date === singleTrainingForm.date &&
+        item.time === singleTrainingForm.time,
+    )
+
+    if (duplicate) {
+      setNotice('Ya existe un entrenamiento para esa categoria, fecha y hora.')
+      return
+    }
+
+    if (!window.confirm(`¿Agregar el entrenamiento de ${singleTrainingForm.category} para el ${formatEventDate(singleTrainingForm.date)}?`)) {
+      return
+    }
+
+    const newTraining: CalendarEvent = {
+      id: `event-training-${school.id}-${singleTrainingForm.category}-${singleTrainingForm.date}-${singleTrainingForm.time}`.replace(/[^a-zA-Z0-9-]+/g, '-'),
+      schoolId: school.id,
+      type: 'Entrenamiento',
+      title: `Entrenamiento ${singleTrainingForm.category}`,
+      category: singleTrainingForm.category,
+      date: singleTrainingForm.date,
+      time: singleTrainingForm.time,
+      endTime: singleTrainingForm.endTime,
+      location: singleTrainingForm.location.trim() || 'Cancha por definir',
+    }
+
+    setEvents((current) => [...current, newTraining])
+    setSelectedEventId(newTraining.id)
+    setSingleTrainingForm(buildEmptySingleTrainingForm(newTraining.category))
+    setEventModal(null)
+    setNotice(`Entrenamiento agregado para ${newTraining.category} el ${formatEventDate(newTraining.date)}.`)
+  }
+
+  function saveTrainingAttendance(training: CalendarEvent, statuses: Record<number, 'Presente' | 'Ausente'>) {
+    const roster = scopedStudents.filter((student) => training.category === 'Todas' || categoriesMatch(student.category, training.category))
+
+    if (!roster.length || roster.some((student) => !statuses[student.id])) {
+      setNotice('Marca Presente o Ausente para todos los alumnos antes de ingresar la asistencia.')
+      return false
+    }
+
+    const attendanceLabel = training.category === 'Todas' ? 'todas las categorias' : training.category
+    if (!window.confirm(`¿Confirmas la asistencia de ${attendanceLabel} para ${formatEventDate(training.date)}?`)) {
+      return false
+    }
+
+    setAttendanceRecords((current) => {
+      const next = [...current]
+
+      roster.forEach((student) => {
+        const status = statuses[student.id]
+        const existingIndex = next.findIndex(
+          (record) => record.schoolId === school.id && record.studentId === student.id && record.date === training.date,
+        )
+        const record: Attendance = {
+          id: existingIndex >= 0 ? next[existingIndex].id : Math.max(...next.map((item) => item.id), 0) + 1,
+          schoolId: school.id,
+          studentId: student.id,
+          name: student.name,
+          category: student.category,
+          status,
+          time: status === 'Presente' ? training.time : 'Ausente',
+          date: training.date,
+        }
+
+        if (existingIndex >= 0) next[existingIndex] = record
+        else next.push(record)
+      })
+
+      return next
+    })
+    setNotice(`Asistencia ingresada para ${training.category}.`)
+    return true
   }
 
 
@@ -2148,7 +2322,7 @@ function App() {
     }
 
     const newEvent: CalendarEvent = {
-      id: `event-match-${school.id}-${matchForm.category}-${matchForm.date}-${Date.now()}`.replace(/[^a-zA-Z0-9-]+/g, '-'),
+      id: `event-match-${school.id}-${matchForm.category}-${matchForm.date}-${crypto.randomUUID()}`.replace(/[^a-zA-Z0-9-]+/g, '-'),
       schoolId: school.id,
       type: 'Partido',
       title: matchForm.title.trim(),
@@ -2278,7 +2452,9 @@ function App() {
 
   function openNewStudent() {
     navigateTo('alumnos')
-    const defaultCategory = canSeeAll ? (selectedCategory === 'Todas' ? attendanceCategory : selectedCategory) : allowedCategory
+    const defaultCategory = canSeeAll
+      ? (selectedCategory === 'Todas' ? schoolCategories[0]?.label ?? '' : selectedCategory)
+      : allowedCategory
 
     setStudentForm(buildEmptyStudentForm(defaultCategory))
     setIsStudentFormOpen(true)
@@ -2292,7 +2468,8 @@ function App() {
     }
 
     navigateTo('alumnos')
-    setBulkImportText('Martin Gonzalez;26111222-3;Sub 8;Paula Gonzalez;912345678;Delantero;2017;11')
+    const exampleCategory = schoolCategories[0]?.label ?? 'Categoria'
+    setBulkImportText(`Martin Gonzalez;26111222-3;${exampleCategory};Paula Gonzalez;912345678;Delantero;2017;11`)
     setIsBulkImportOpen(true)
     setNotice('')
   }
@@ -2379,108 +2556,88 @@ function App() {
       },
     ])
     setSelectedCategory(newStudent.category)
-    setAttendanceCategory(newStudent.category)
     setSelectedStudentId(newId)
     setSelectedPlayerId(newId)
     setIsStudentFormOpen(false)
     setNotice(`${newStudent.name} fue agregado a ${newStudent.category}.`)
   }
 
-  function saveBulkImport(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+ function saveBulkImport(event: FormEvent<HTMLFormElement>) {
+  event.preventDefault()
 
-    if (!canSeeAll) {
-      setNotice('Solo el administrador/director puede usar carga masiva.')
-      return
-    }
+  try {
+    console.log("IMPORT iniciado")
 
     const lines = bulkImportText
       .split('\n')
-      .map((line) => line.trim())
+      .map(line => line.trim())
       .filter(Boolean)
 
-    const validCategories = new Set(schoolCategories.map((category) => category.label))
-    const currentMaxStudentId = Math.max(...students.map((student) => student.id), 0)
-    const currentMaxAttendanceId = Math.max(...attendanceRecords.map((record) => record.id), 0)
-    const currentMaxPaymentId = Math.max(...payments.map((payment) => payment.id), 0)
-
-    const importedStudents: Student[] = []
-
-    lines.forEach((line, index) => {
-      const [name, rut, category, guardian, phone, position = 'Volante', birthYear = '2017', shirtNumber = '10'] = line
-        .split(';')
-        .map((item) => item.trim())
-
-      const normalizedStudentRut = normalizeRut(rut)
-
-      if (!name || !isValidRutFormat(normalizedStudentRut) || !guardian || !phone || !validCategories.has(category)) {
-        return
-      }
-
-      const cleanPhone = phone.replace(/\D/g, '')
-      importedStudents.push({
-        id: currentMaxStudentId + importedStudents.length + 1,
-        schoolId: school.id,
-        name,
-        rut: normalizedStudentRut,
-        category,
-        guardian,
-        phone: cleanPhone.startsWith('56') ? cleanPhone : `56${cleanPhone}`,
-        status: 'Activo',
-        paymentStatus: 'Pendiente',
-        attendance: '0%',
-        position,
-        dominantFoot: 'Derecha',
-        birthYear: Number(birthYear) || 2017,
-        shirtNumber: Number(shirtNumber) || 10,
-        photoTone: index % 2 === 0 ? '#087a25' : '#1768a6',
-        strengths: ['En observacion'],
-        notes: 'Alumno importado por carga masiva. Pendiente evaluacion del DT.',
-        coachComment: '',
-        medical: 'Sin observaciones',
-        goals: 0,
-        assists: 0,
-      })
-    })
-
-    if (!importedStudents.length) {
-      setNotice('No se pudo importar. Usa RUT sin puntos y con guion: Nombre;RUT;Categoria;Apoderado;Telefono;Posicion;Ano;Numero')
+    if (lines.length === 0) {
+      setNotice("Formato vacío")
       return
     }
 
-    setStudents((current) => [...current, ...importedStudents])
-    setAttendanceRecords((records) => [
-      ...records,
-      ...importedStudents.map((student, index) => ({
-        id: currentMaxAttendanceId + index + 1,
-        schoolId: school.id,
-        studentId: student.id,
-        name: student.name,
-        category: student.category,
-        status: 'Pendiente' as AttendanceStatus,
-        time: 'Sin marcar',
-        date: '2026-04-25',
-      })),
-    ])
-    setPayments((records) => [
-      ...records,
-      ...importedStudents.map((student, index) => ({
-        id: currentMaxPaymentId + index + 1,
-        schoolId: school.id,
-        studentId: student.id,
-        name: student.name,
-        category: student.category,
-        amount: '$30.000',
-        status: 'Pendiente' as PaymentStatus,
-        dueDate: '10 abril',
-        method: 'Sin registrar',
-      })),
-    ])
-    setSelectedCategory('Todas')
+    const validCategories = new Set(
+      schoolCategories.map(c => c.label.toLowerCase().trim())
+    )
+
+    const imported: Student[] = []
+
+    lines.forEach((line, index) => {
+      const parts = line.split(';')
+
+      const name = parts[0]?.trim()
+
+      if (!name) return
+
+      const categoryRaw = parts[1]?.trim() || ''
+      const category = Array.from(validCategories).find(
+        c => c === categoryRaw.toLowerCase().trim()
+      ) || categoryRaw || 'Sin categoría'
+
+   imported.push({
+  id: Date.now() + index,
+  schoolId: school.id,
+  name,
+  rut: '',
+  category: category || 'Sin categoría',
+  guardian: '',
+  phone: '',
+  status: 'Activo',
+  paymentStatus: 'Pendiente',
+  attendance: '0%',
+  position: '',
+  dominantFoot: '',
+  birthYear: 0,
+  shirtNumber: 0,
+  photoTone: '#087a25',
+  strengths: [],
+  notes: '',
+  coachComment: '',
+  medical: '',
+  goals: 0,
+  assists: 0,
+})
+    })
+
+    if (imported.length === 0) {
+      setNotice("❌ No se importaron alumnos")
+      return
+    }
+
+    setStudents(prev => [...prev, ...imported])
+
+    setNotice(`✅ ${imported.length} alumnos importados`)
+
     setBulkImportText('')
     setIsBulkImportOpen(false)
-    setNotice(`${importedStudents.length} alumnos importados correctamente.`)
+
+  } catch (error) {
+    console.error(error)
+    setNotice("❌ Error al importar")
   }
+}
 
   function preparePaymentMessage(payment: Payment) {
     const targetStudent = scopedStudents.find((student) => student.id === payment.studentId || student.name === payment.name)
@@ -2492,11 +2649,6 @@ function App() {
     setMessageMode('individual')
     setSelectedTemplateId('pago')
     navigateTo('mensajes')
-  }
-
-  function openPlayerProfile(studentId: number) {
-    setSelectedPlayerId(studentId)
-    navigateTo('perfil')
   }
 
   function updatePlayerComment(studentId: number, comment: string) {
@@ -2544,17 +2696,7 @@ function App() {
       plan: newSchoolForm.plan,
       monthlyFee: newSchoolForm.plan === 'Beneficio' ? '$0' : newSchoolForm.monthlyFee.trim(),
     }
-    const starterCategories: Category[] = ['Sub 6', 'Sub 8', 'Sub 10', 'Sub 12', 'Femenina Sub 12'].map((label) => ({
-      id: `${newSchool.id}-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-      schoolId: newSchool.id,
-      label,
-      students: 0,
-      attendance: '0%',
-      branch: label.includes('Femenina') ? 'Femenina' : 'Mixta',
-    }))
-
     setSchools((current) => [...current, newSchool])
-    setCategories((current) => [...current, ...starterCategories])
     setNewUserForm(buildEmptyUserForm(newSchool.id))
     setNewSchoolForm({ ...buildEmptySchoolForm(), adminRut: `${55000000 + schools.length + 1}-5` })
     setNotice(`${newSchool.name} fue creada y guardada sin alumnos ni usuarios. Ahora puedes crear sus accesos desde Usuarios.`)
@@ -2688,7 +2830,7 @@ function App() {
 
     const role = schoolUserForm.role === 'SuperAdmin' ? 'DT' : schoolUserForm.role
     const newUser: User = {
-      id: `school-${role.toLowerCase()}-${Date.now()}`,
+      id: `school-${role.toLowerCase()}-${crypto.randomUUID()}`,
       name: schoolUserForm.name.trim(),
       rut: normalizedRut,
       password: schoolUserForm.password.trim() || 'demo123',
@@ -2745,7 +2887,6 @@ function App() {
     setCategories((current) => [...current, newCategory])
     setNewCategoryForm(buildEmptyCategoryForm())
     setSelectedCategory(label)
-    setAttendanceCategory(label)
     setNotice(`${label} fue creada para ${school.name}.`)
   }
 
@@ -2785,10 +2926,6 @@ function App() {
       setSelectedCategory(schoolCategories.filter((c) => c.id !== categoryId)[0]?.label ?? 'Todas')
     }
 
-    if (attendanceCategory === target.label) {
-      setAttendanceCategory('')
-    }
-
     if (selectedEventId) {
       const selectedEventStillExists = events.some((event) => event.id === selectedEventId)
       if (!selectedEventStillExists) {
@@ -2819,6 +2956,13 @@ function App() {
     )
   }
 
+  function updateSchoolTheme(schoolId: string, field: 'accent' | 'secondary', value: string) {
+    setSchools((current) =>
+      current.map((currentSchool) => (currentSchool.id === schoolId ? { ...currentSchool, [field]: value } : currentSchool)),
+    )
+    setNotice('Colores del portal actualizados.')
+  }
+
   function addExpense(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -2840,6 +2984,10 @@ function App() {
     const expenseCategory =
       newExpenseForm.category === 'Otro' ? `Otro: ${newExpenseForm.categoryDetail.trim()}` : newExpenseForm.category
 
+    if (!window.confirm(`¿Registrar el egreso "${newExpenseForm.title.trim()}" por ${newExpenseForm.amount.trim()}?`)) {
+      return
+    }
+
     const newExpense: Expense = {
       id: Math.max(...expenses.map((expense) => expense.id), 0) + 1,
       schoolId: school.id,
@@ -2859,6 +3007,14 @@ function App() {
 
   function markExpense(id: number, status: Expense['status']) {
     setExpenses((current) => current.map((expense) => (expense.id === id ? { ...expense, status } : expense)))
+  }
+
+  function deleteExpense(id: number) {
+    const expense = expenses.find((item) => item.id === id)
+    if (!window.confirm(`¿Eliminar el egreso "${expense?.title ?? 'seleccionado'}"?`)) return
+
+    setExpenses((current) => current.filter((item) => item.id !== id))
+    setNotice(`${expense?.title ?? 'El egreso'} fue eliminado del balance.`)
   }
 
   function addIncome(event: FormEvent<HTMLFormElement>) {
@@ -2882,6 +3038,10 @@ function App() {
     const incomeCategory =
       newIncomeForm.category === 'Otro' ? `Otro: ${newIncomeForm.categoryDetail.trim()}` : newIncomeForm.category
 
+    if (!window.confirm(`¿Registrar el ingreso "${newIncomeForm.title.trim()}" por ${newIncomeForm.amount.trim()}?`)) {
+      return
+    }
+
     const newIncome: Income = {
       id: Math.max(...incomes.map((income) => income.id), 0) + 1,
       schoolId: school.id,
@@ -2903,6 +3063,14 @@ function App() {
     setIncomes((current) => current.map((income) => (income.id === id ? { ...income, status } : income)))
   }
 
+  function deleteIncome(id: number) {
+    const income = incomes.find((item) => item.id === id)
+    if (!window.confirm(`¿Eliminar el ingreso "${income?.title ?? 'seleccionado'}"?`)) return
+
+    setIncomes((current) => current.filter((item) => item.id !== id))
+    setNotice(`${income?.title ?? 'El ingreso'} fue eliminado del balance.`)
+  }
+
   function addUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -2921,7 +3089,7 @@ function App() {
 
     const selectedSchool = schools.find((item) => item.id === newUserForm.schoolId)
     const newUser: User = {
-      id: `${newUserForm.role.toLowerCase()}-${Date.now()}`,
+      id: `${newUserForm.role.toLowerCase()}-${crypto.randomUUID()}`,
       name: newUserForm.name.trim(),
       rut: normalizedRut,
       password: newUserForm.password.trim() || 'demo123',
@@ -2950,7 +3118,7 @@ function App() {
     const importedUsers: User[] = []
 
     lines.forEach((line) => {
-      const [name, rut, roleValue, schoolId, category = 'Sub 8', passwordValue = 'demo123'] = line
+      const [name, rut, roleValue, schoolId, category = '', passwordValue = 'demo123'] = line
         .split(line.includes(';') ? ';' : '\t')
         .map((item) => item.trim())
       const role = roleValue as UserRole
@@ -3143,7 +3311,7 @@ function App() {
     }
 
     const reportAttendance = scopedAttendance.filter(
-      (record) => record.date === reportDate && (reportCategory === 'Todas' || record.category === reportCategory),
+      (record) => record.date === reportDate && (reportCategory === 'Todas' || categoriesMatch(record.category, reportCategory)),
     )
     const present = reportAttendance.filter((record) => record.status === 'Presente').length
     const absent = reportAttendance.filter((record) => record.status === 'Ausente').length
@@ -3186,22 +3354,50 @@ function App() {
       .catch(() => setNotice('No se pudo copiar automaticamente, pero el reporte esta visible.'))
   }
 
-  function downloadGeneratedReport() {
+  async function downloadGeneratedReport() {
     if (!generatedReport) {
       setNotice('Primero genera un reporte.')
       return
     }
 
-    const blob = buildReportWorkbook(generatedReport)
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = getReportFileName(generatedReport)
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-    setNotice('Reporte Excel exportado.')
+    setIsExportingPdf(true)
+    setNotice('Generando PDF...')
+
+    try {
+      const blob = buildReportPdf(generatedReport)
+      const fileName = getReportPdfFileName(generatedReport)
+
+      if (Capacitor.isNativePlatform()) {
+        const savedFile = await Filesystem.writeFile({
+          data: await blobToBase64(blob),
+          directory: Directory.Cache,
+          path: fileName,
+          recursive: true,
+        })
+
+        await Share.share({
+          dialogTitle: 'Guardar o compartir reporte PDF',
+          files: [savedFile.uri],
+          title: generatedReport.title,
+        })
+      } else {
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = fileName
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+
+      setNotice('PDF generado.')
+    } catch (error) {
+      console.error(error)
+      setNotice('Error al generar PDF.')
+    } finally {
+      setIsExportingPdf(false)
+    }
   }
 
   function openSchoolPortal(schoolId: string) {
@@ -3238,7 +3434,6 @@ function App() {
     setSuperAdminPreviewSchoolId(selectedSchool.id)
     setActiveView('panel')
     setSelectedCategory('Todas')
-    setAttendanceCategory('Sub 8')
     setSelectedEventId(events.find((event) => event.schoolId === selectedSchool.id)?.id ?? '')
     setBulkCategory('Todas')
     setSchoolUserForm(buildEmptyUserForm(selectedSchool.id))
@@ -3264,7 +3459,7 @@ function App() {
 
   function renderNavItem(item: NavItem) {
     const Icon = item.icon
-    const isActive = activeView === item.id
+    const isActive = visibleActiveView === item.id
 
     return (
       <button
@@ -3275,8 +3470,13 @@ function App() {
         onClick={() => navigateTo(item.id)}
         type="button"
       >
-        <Icon size={18} aria-hidden="true" />
-        <span>{item.label}</span>
+        <span className="nav-icon">
+          <Icon size={19} aria-hidden="true" />
+        </span>
+        <span className="nav-copy">
+          <strong>{item.label}</strong>
+          <small>{item.description}</small>
+        </span>
       </button>
     )
   }
@@ -3328,6 +3528,7 @@ function App() {
         toggleUserPermission={toggleUserPermission}
         updateNewSchoolForm={updateNewSchoolForm}
         updateNewUserForm={updateNewUserForm}
+        updateSchoolTheme={updateSchoolTheme}
         updateSchoolViews={updateSchoolViews}
         updateUserField={updateUserField}
         updateUserRole={updateUserRole}
@@ -3347,6 +3548,16 @@ function App() {
           '--school-soft': school.secondary,
           '--school-accent-rgb': hexToRgbValue(school.accent),
           '--school-deep': darkenHex(school.accent),
+          '--adn-lime': school.secondary,
+          '--adn-green1': mixWithWhite(school.accent, 0.34),
+          '--adn-green2': school.accent,
+          '--adn-core': school.accent,
+          '--adn-dark1': darkenHex(school.accent, 0.28),
+          '--adn-deep': darkenHex(school.accent, 0.62),
+          '--green-fg': school.secondary,
+          '--border-subtle': `rgba(${hexToRgbValue(school.accent)}, 0.16)`,
+          '--border-muted': `rgba(${hexToRgbValue(school.accent)}, 0.3)`,
+          '--border-visible': `rgba(${hexToRgbValue(school.accent)}, 0.46)`,
         } as CSSProperties
       }
     >
@@ -3398,7 +3609,7 @@ function App() {
           <button className="mobile-brand" onClick={() => navigateTo('panel')} type="button" aria-label="Ir al panel">
             <img src={school.logo || adnIcon} alt="" />
           </button>
-          {!isStudentPortal && !isFinance && (
+          {canViewStudents && (
             <button className="icon-button" onClick={() => navigateTo('alumnos')} type="button" aria-label="Buscar">
               <Search size={20} />
             </button>
@@ -3418,7 +3629,7 @@ function App() {
           </div>
 
           <div className="topbar-logout-wrapper">
-            {activeView === 'alumnos' && (
+            {visibleActiveView === 'alumnos' && (
               <div className="topbar-actions">
                 {!isStudentPortal && !isFinance && (
                   <button className="ghost-button" onClick={() => navigateTo('alumnos')} type="button">
@@ -3447,47 +3658,50 @@ function App() {
           </div>
         </section>
 
-        {notice && <div className="notice-banner">{notice}</div>}
+        {notice && <div aria-live="polite" className="notice-banner" role="status">{notice}</div>}
 
-        {activeView === 'panel' && (
+        {visibleActiveView === 'panel' && (
           <DashboardPage
             attendanceRecords={scopedAttendance}
             canSeeAll={canSeeAll}
-            canSeeStudents={canSeeStudents}
-            canUseAttendance={canUseAttendance}
-            canUseFinance={canUseFinance}
+            canSeeStudents={canViewStudents}
+            canUseAttendance={canViewAttendance}
+            canUseEvents={canViewEvents}
+            canUseFinance={canViewFinance}
+            canUseMessages={canViewMessages}
             coach={coach}
             navigateTo={navigateTo}
             payments={scopedPayments}
             preparePaymentMessage={preparePaymentMessage}
+            nextEvent={nextSchoolEvent}
             scopedCategories={scopedCategories}
             setMessageMode={setMessageMode}
             setSelectedTemplateId={setSelectedTemplateId}
             stats={stats}
+            appSections={roleNavItems}
           />
         )}
 
-        {activeView === 'alumnos' && (
+        {visibleActiveView === 'alumnos' && (
           <StudentsPage
-            canViewPayments={canUseFinance}
             categoryOptions={categoryOptions}
             filteredStudents={filteredStudents}
-            fallbackStudent={scopedStudents[0] ?? emptyStudent}
-            navigateTo={navigateTo}
-            openPlayerProfile={openPlayerProfile}
             searchTerm={searchTerm}
             selectedCategory={selectedCategory}
             setSearchTerm={setSearchTerm}
             setSelectedCategory={setSelectedCategory}
+            setEditingStudent={setEditingStudent}
+            deleteStudent={deleteStudent}
           />
         )}
 
-        {activeView === 'eventos' && (
+        {visibleActiveView === 'eventos' && (
           <EventsPage
             addMatchEvent={addMatchEvent}
             addMonthlyTrainings={addMonthlyTrainings}
+            addSingleTraining={addSingleTraining}
             bulkEventText={bulkEventText}
-            canManageEvents={canUseAttendance}
+            canManageEvents={canViewAttendance}
             categoryOptions={categoryOptions}
             coach={coach}
             createTrainingsConfirmed={createTrainingsConfirmed}
@@ -3499,6 +3713,7 @@ function App() {
             markEventAttendance={markEventAttendance}
             matchForm={matchForm}
             saveBulkEvents={saveBulkEvents}
+            singleTrainingForm={singleTrainingForm}
             scopedStudents={scopedStudents}
             selectedEventId={selectedEventId}
             setEventModal={setEventModal}
@@ -3510,31 +3725,31 @@ function App() {
             trainingForm={trainingForm}
             updateEvent={updateEvent}
             updateMatchForm={updateMatchForm}
+            updateSingleTrainingForm={updateSingleTrainingForm}
             updateTrainingForm={updateTrainingForm}
           />
         )}
 
-        {activeView === 'asistencia' && (
+        {visibleActiveView === 'asistencia' && (
           <AttendancePage
             attendanceRecords={scopedAttendance}
-            attendanceCategory={attendanceCategory}
-            attendanceForCategory={attendanceForCategory}
             copyGeneratedReport={copyGeneratedReport}
             downloadGeneratedReport={downloadGeneratedReport}
             generatedReport={generatedReport}
             generateReport={generateReport}
-            markAttendance={markAttendance}
-            markCategoryAsPresent={markCategoryAsPresent}
+            isExportingPdf={isExportingPdf}
+            events={schoolEvents}
             reportCategory={reportCategory}
             reportDate={reportDate}
+            saveTrainingAttendance={saveTrainingAttendance}
             scopedCategories={scopedCategories}
-            setAttendanceCategory={setAttendanceCategory}
+            scopedStudents={scopedStudents}
             setReportCategory={setReportCategory}
             setReportDate={setReportDate}
           />
         )}
 
-        {activeView === 'pagos' && (
+        {visibleActiveView === 'pagos' && (
           <PaymentsPage
             canEditPayments={canUseFinance}
             markPayment={markPayment}
@@ -3546,7 +3761,7 @@ function App() {
           />
         )}
 
-        {activeView === 'finanzas' && (
+        {visibleActiveView === 'finanzas' && (
           <FinancePage
             attendanceRecords={scopedAttendance}
             categoryOptions={categoryOptions}
@@ -3555,6 +3770,7 @@ function App() {
             financeStatusFilter={financeStatusFilter}
             generatedReport={generatedReport}
             generateReport={generateReport}
+            isExportingPdf={isExportingPdf}
             markPayment={markPayment}
             payments={scopedPayments}
             preparePaymentMessage={preparePaymentMessage}
@@ -3566,10 +3782,12 @@ function App() {
           />
         )}
 
-        {activeView === 'balance' && (
+        {visibleActiveView === 'balance' && (
           <BalancePage
             addExpense={addExpense}
             addIncome={addIncome}
+            deleteExpense={deleteExpense}
+            deleteIncome={deleteIncome}
             expenses={scopedExpenses}
             incomes={scopedIncomes}
             markExpense={markExpense}
@@ -3584,7 +3802,7 @@ function App() {
           />
         )}
 
-        {activeView === 'gestion' && (
+        {visibleActiveView === 'gestion' && (
           <SchoolManagementPage
             addCategory={addCategory}
             addSchoolUser={addSchoolUser}
@@ -3600,7 +3818,7 @@ function App() {
           />
         )}
 
-        {activeView === 'mensajes' && (
+        {visibleActiveView === 'mensajes' && (
           <MessagesPage
             bulkCategory={bulkCategory}
             bulkMessage={bulkMessage}
@@ -3622,7 +3840,7 @@ function App() {
           />
         )}
 
-        {activeView === 'perfil' && (
+        {visibleActiveView === 'perfil' && (
           isStudentPortal ? (
             <PlayerProfilePage
               navigateTo={navigateTo}
@@ -3656,6 +3874,16 @@ function App() {
         />
       )}
 
+      {editingStudent && (
+        <EditStudentModal
+          categoryOptions={categoryOptions.filter((category) => category !== 'Todas')}
+          closeEditStudent={() => setEditingStudent(null)}
+          editingStudent={editingStudent}
+          saveEditedStudent={saveEditedStudent}
+          setEditingStudent={setEditingStudent}
+        />
+      )}
+
       {isBulkImportOpen && (
         <BulkImportModal
           bulkImportText={bulkImportText}
@@ -3668,7 +3896,7 @@ function App() {
       <nav className="bottom-nav" aria-label="Navegacion movil">
         {roleNavItems.map((item) => {
           const Icon = item.icon
-          const isActive = activeView === item.id
+          const isActive = visibleActiveView === item.id
 
           return (
             <button
@@ -3789,6 +4017,7 @@ function SuperAdminPortal({
   deleteUser,
   updateNewSchoolForm,
   updateNewUserForm,
+  updateSchoolTheme,
   updateSchoolViews,
   updateUserField,
   updateUserRole,
@@ -3820,6 +4049,7 @@ function SuperAdminPortal({
   toggleUserStatus: (userId: string) => void
   updateNewSchoolForm: (field: keyof NewSchoolForm, value: string) => void
   updateNewUserForm: (field: keyof NewUserForm, value: string) => void
+  updateSchoolTheme: (schoolId: string, field: 'accent' | 'secondary', value: string) => void
   updateSchoolViews: (schoolId: string, view: View, enabled: boolean) => void
   updateUserField: (userId: string, field: keyof Pick<User, 'name' | 'rut' | 'category' | 'schoolId' | 'status'>, value: string) => void
   updateUserRole: (userId: string, role: UserRole) => void
@@ -3926,7 +4156,7 @@ function SuperAdminPortal({
         })}
       </nav>
 
-      {notice && <div className="notice-banner">{notice}</div>}
+      {notice && <div aria-live="polite" className="notice-banner" role="status">{notice}</div>}
 
       {section === 'escuelas' && (
         <section className="superadmin-single">
@@ -3950,6 +4180,26 @@ function SuperAdminPortal({
                     <span>{school.city}</span>
                     <span>{school.plan} - Encargado: {school.adminName}</span>
                     <small>ID: {school.id}</small>
+                    <div className="school-theme-controls">
+                      <label>
+                        <span>Color principal</span>
+                        <input
+                          aria-label={`Color principal de ${school.name}`}
+                          onChange={(event) => updateSchoolTheme(school.id, 'accent', event.target.value)}
+                          type="color"
+                          value={school.accent}
+                        />
+                      </label>
+                      <label>
+                        <span>Color destacado</span>
+                        <input
+                          aria-label={`Color destacado de ${school.name}`}
+                          onChange={(event) => updateSchoolTheme(school.id, 'secondary', event.target.value)}
+                          type="color"
+                          value={school.secondary}
+                        />
+                      </label>
+                    </div>
                   </div>
                   <div className="school-admin-actions">
                     <button className="small-button" onClick={() => openSchoolPortal(school.id)} type="button">
@@ -4466,14 +4716,14 @@ function SuperAdminPortal({
                 <textarea
                   className="bulk-textarea super-bulk"
                   onChange={(event) => setBulkUserText(event.target.value)}
-                  placeholder="Carlos Soto;66666666-6;DT;los-cracks;Sub 8;demo123"
+                  placeholder="Carlos Soto;66666666-6;DT;id-escuela;Categoria;demo123"
                   value={bulkUserText}
                 />
               </label>
               <div className="csv-example">
                 <span>Ejemplos</span>
-                <code>Carlos Soto;66666666-6;DT;los-cracks;Sub 8;demo123</code>
-                <code>Andrea Mella;77777777-7;Finanzas;cantera-sur;Todas;demo123</code>
+                <code>Carlos Soto;66666666-6;DT;id-escuela;Categoria;demo123</code>
+                <code>Andrea Mella;77777777-7;Finanzas;id-escuela;Todas;demo123</code>
               </div>
               <button className="primary-button" type="submit">
                 <Upload size={18} aria-hidden="true" />
@@ -4724,6 +4974,89 @@ function AddStudentModal({
   )
 }
 
+function EditStudentModal({
+  categoryOptions,
+  closeEditStudent,
+  editingStudent,
+  saveEditedStudent,
+  setEditingStudent,
+}: {
+  categoryOptions: string[]
+  closeEditStudent: () => void
+  editingStudent: Student
+  saveEditedStudent: (event: FormEvent<HTMLFormElement>) => void
+  setEditingStudent: (student: Student) => void
+}) {
+  const updateField = <Field extends keyof Student>(field: Field, value: Student[Field]) => {
+    setEditingStudent({ ...editingStudent, [field]: value })
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="student-modal" aria-labelledby="edit-student-title" role="dialog" aria-modal="true">
+        <div className="panel-header">
+          <div>
+            <span className="panel-kicker">Editar alumno</span>
+            <h2 id="edit-student-title">{editingStudent.name}</h2>
+          </div>
+          <button className="icon-button" onClick={closeEditStudent} type="button" aria-label="Cerrar formulario">
+            <XCircle size={18} aria-hidden="true" />
+          </button>
+        </div>
+
+        <form className="student-form" onSubmit={saveEditedStudent}>
+          <label className="form-field">
+            <span>Nombre del alumno</span>
+            <input autoFocus onChange={(event) => updateField('name', event.target.value)} value={editingStudent.name} />
+          </label>
+
+          <label className="form-field">
+            <span>RUT alumno</span>
+            <input onChange={(event) => updateField('rut', normalizeRut(event.target.value))} value={editingStudent.rut} />
+          </label>
+
+          <label className="form-field">
+            <span>Categoria</span>
+            <select onChange={(event) => updateField('category', event.target.value)} value={editingStudent.category}>
+              {categoryOptions.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="form-field">
+            <span>Posicion</span>
+            <input onChange={(event) => updateField('position', event.target.value)} value={editingStudent.position} />
+          </label>
+
+          <label className="form-field">
+            <span>Apoderado</span>
+            <input onChange={(event) => updateField('guardian', event.target.value)} value={editingStudent.guardian} />
+          </label>
+
+          <label className="form-field">
+            <span>Telefono WhatsApp</span>
+            <input inputMode="tel" onChange={(event) => updateField('phone', event.target.value)} value={editingStudent.phone} />
+          </label>
+
+          <label className="form-field full">
+            <span>Notas del DT</span>
+            <textarea onChange={(event) => updateField('notes', event.target.value)} value={editingStudent.notes} />
+          </label>
+
+          <div className="modal-actions">
+            <button className="ghost-button" onClick={closeEditStudent} type="button">Cancelar</button>
+            <button className="primary-button" type="submit">
+              <Pencil size={18} aria-hidden="true" />
+              Guardar cambios
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
 function BulkImportModal({
   bulkImportText,
   closeBulkImport,
@@ -4765,8 +5098,8 @@ function BulkImportModal({
 
           <div className="csv-example">
             <span>Ejemplo</span>
-            <code>Martin Gonzalez;26111222-3;Sub 8;Paula Gonzalez;912345678;Delantero;2017;11</code>
-            <code>Isidora Lagos;25444555-6;Sub 10;Claudio Lagos;987654321;Volante;2015;8</code>
+            <code>Martin Gonzalez;26111222-3;Categoria;Paula Gonzalez;912345678;Delantero;2017;11</code>
+            <code>Isidora Lagos;25444555-6;Categoria;Claudio Lagos;987654321;Volante;2015;8</code>
           </div>
 
           <div className="modal-actions">
@@ -4785,13 +5118,17 @@ function BulkImportModal({
 }
 
 function DashboardPage({
+  appSections,
   attendanceRecords,
   canSeeAll,
   canSeeStudents,
   canUseAttendance,
+  canUseEvents,
   canUseFinance,
+  canUseMessages,
   coach,
   navigateTo,
+  nextEvent,
   payments,
   preparePaymentMessage,
   scopedCategories,
@@ -4799,13 +5136,17 @@ function DashboardPage({
   setSelectedTemplateId,
   stats,
 }: {
+  appSections: NavItem[]
   attendanceRecords: Attendance[]
   canSeeAll: boolean
   canSeeStudents: boolean
   canUseAttendance: boolean
+  canUseEvents: boolean
   canUseFinance: boolean
+  canUseMessages: boolean
   coach: User
   navigateTo: (view: View) => void
+  nextEvent: CalendarEvent | null
   payments: Payment[]
   preparePaymentMessage: (payment: Payment) => void
   scopedCategories: Category[]
@@ -4846,6 +5187,34 @@ function DashboardPage({
             </button>
           )
         })}
+      </section>
+
+      <section className="app-launcher" aria-label="Accesos principales">
+        <div className="section-heading">
+          <div>
+            <span className="panel-kicker">Centro deportivo</span>
+            <h2>¿Qué quieres gestionar?</h2>
+          </div>
+          <p>Accesos rápidos a las herramientas habilitadas para tu cuenta.</p>
+        </div>
+        <div className="app-launcher-grid">
+          {appSections.filter((item) => item.id !== 'panel').map((item) => {
+            const Icon = item.icon
+
+            return (
+              <button className="app-launcher-card" key={item.id} onClick={() => navigateTo(item.id)} type="button">
+                <span className="app-launcher-icon">
+                  <Icon size={24} aria-hidden="true" />
+                </span>
+                <span>
+                  <strong>{item.label}</strong>
+                  <small>{item.description}</small>
+                </span>
+                <ChevronDown className="launcher-arrow" size={18} aria-hidden="true" />
+              </button>
+            )
+          })}
+        </div>
       </section>
 
       <section className="dashboard-grid">
@@ -4921,6 +5290,7 @@ function DashboardPage({
           </article>
         )}
 
+        {canUseMessages && (
         <article className="panel messages-panel">
           <div className="panel-header">
             <div>
@@ -4949,6 +5319,7 @@ function DashboardPage({
             ))}
           </div>
         </article>
+        )}
 
         {canSeeStudents && (
           <article className="panel categories-panel">
@@ -4979,15 +5350,20 @@ function DashboardPage({
           </article>
         )}
 
+        {canUseEvents && (
         <article className="panel next-class-panel">
           <div className="match-card">
             <div className="match-icon">
               <ShieldCheck size={24} aria-hidden="true" />
             </div>
             <span>Proxima actividad</span>
-            <h2>{canSeeAll ? 'Amistoso escuela' : `Amistoso ${coach.category}`}</h2>
-            <p>Sabado, 09:30 - Complejo Deportivo Quilin</p>
-            <button
+            <h2>{nextEvent?.title ?? 'Sin actividades programadas'}</h2>
+            <p>
+              {nextEvent
+                ? `${formatEventDate(nextEvent.date)}, ${nextEvent.time}${nextEvent.endTime ? ` - ${nextEvent.endTime}` : ''} · ${nextEvent.location}`
+                : 'Cuando agregues un entrenamiento o partido aparecerá aquí.'}
+            </p>
+            {nextEvent && canUseMessages && <button
               className="ghost-button"
               onClick={() => {
                 setSelectedTemplateId('partido')
@@ -4998,10 +5374,12 @@ function DashboardPage({
             >
               <Clock3 size={18} aria-hidden="true" />
               Enviar recordatorio
-            </button>
+            </button>}
           </div>
         </article>
+        )}
 
+        {(canSeeStudents || canUseFinance) && (
         <article className="panel quick-actions-panel">
           <div className="panel-header">
             <div>
@@ -5024,38 +5402,33 @@ function DashboardPage({
             )}
           </div>
         </article>
+        )}
       </section>
     </>
   )
 }
 
 function StudentsPage({
-  canViewPayments,
   categoryOptions,
-  fallbackStudent,
   filteredStudents,
-  navigateTo,
-  openPlayerProfile,
   searchTerm,
   selectedCategory,
+  setEditingStudent,
   setSearchTerm,
   setSelectedCategory,
+  deleteStudent,
 }: {
-  canViewPayments: boolean
   categoryOptions: string[]
-  fallbackStudent: Student
+  deleteStudent: (id: number) => void
   filteredStudents: Student[]
-  navigateTo: (view: View) => void
-  openPlayerProfile: (studentId: number) => void
   searchTerm: string
   selectedCategory: string
+  setEditingStudent: (student: Student) => void
   setSearchTerm: (value: string) => void
   setSelectedCategory: (value: string) => void
 }) {
-  const highlightedStudent = filteredStudents[0] ?? fallbackStudent
-
   return (
-    <section className="workspace-grid students-layout">
+    <section className="students-compact-page">
       <article className="panel wide-panel">
         <div className="panel-header">
           <div>
@@ -5091,70 +5464,29 @@ function StudentsPage({
           </div>
         </div>
 
-        <div className="student-list">
+        <div className="student-compact-list">
           {filteredStudents.map((student) => (
-            <article className="student-card" key={student.id}>
-              <PlayerAvatar player={student} />
-              <div className="student-info">
+            <article className="student-compact-row" key={student.id}>
+              <div className="student-compact-info">
                 <strong>{student.name}</strong>
-                <span>
-                  {student.category} - {student.position} - Apoderado: {student.guardian}
-                </span>
-                <small>
-                  RUT: {student.rut} - Telefono: +{student.phone}
-                </small>
+                <span>{student.category}</span>
               </div>
-              <span className={`status ${getStatusClass(student.status)}`}>{student.status}</span>
-              <div className="student-actions">
-                <button className="small-button" onClick={() => openPlayerProfile(student.id)} type="button">
-                  Ver perfil
+
+              <div className="student-compact-actions">
+                <button className="student-edit-action" onClick={() => setEditingStudent(student)} type="button">
+                  <Pencil size={16} aria-hidden="true" />
+                  Editar
                 </button>
-                <button className="small-button" onClick={() => navigateTo('asistencia')} type="button">
-                  Asistencia
+                <button className="student-delete-action" onClick={() => deleteStudent(student.id)} type="button">
+                  <Trash2 size={16} aria-hidden="true" />
+                  Eliminar
                 </button>
-                {canViewPayments && (
-                  <button className="small-button" onClick={() => navigateTo('pagos')} type="button">
-                    Pagos
-                  </button>
-                )}
               </div>
             </article>
           ))}
+          {!filteredStudents.length && <p className="helper-text">No hay alumnos que coincidan con los filtros.</p>}
         </div>
       </article>
-
-      <aside className="panel detail-panel">
-        <span className="panel-kicker">Ficha rapida</span>
-        <PlayerAvatar player={highlightedStudent} large />
-        <h2>{highlightedStudent.name}</h2>
-        <div className="detail-list">
-          <div>
-            <span>RUT</span>
-            <strong>{highlightedStudent.rut}</strong>
-          </div>
-          <div>
-            <span>Categoria</span>
-            <strong>{highlightedStudent.category}</strong>
-          </div>
-          <div>
-            <span>Posicion</span>
-            <strong>{highlightedStudent.position}</strong>
-          </div>
-          <div>
-            <span>Asistencia</span>
-            <strong>{highlightedStudent.attendance}</strong>
-          </div>
-          <div>
-            <span>Pago</span>
-            <strong>{highlightedStudent.paymentStatus}</strong>
-          </div>
-        </div>
-        <button className="primary-button" onClick={() => openPlayerProfile(highlightedStudent.id)} type="button">
-          <UserRound size={18} aria-hidden="true" />
-          Abrir perfil
-        </button>
-      </aside>
-
     </section>
   )
 }
@@ -5162,6 +5494,7 @@ function StudentsPage({
 function EventsPage({
   addMatchEvent,
   addMonthlyTrainings,
+  addSingleTraining,
   bulkEventText,
   canManageEvents,
   categoryOptions,
@@ -5175,6 +5508,7 @@ function EventsPage({
   markEventAttendance,
   matchForm,
   saveBulkEvents,
+  singleTrainingForm,
   scopedStudents,
   selectedEventId,
   setEventModal,
@@ -5186,10 +5520,12 @@ function EventsPage({
   trainingForm,
   updateEvent,
   updateMatchForm,
+  updateSingleTrainingForm,
   updateTrainingForm,
 }: {
   addMatchEvent: (event: FormEvent<HTMLFormElement>) => void
   addMonthlyTrainings: (event: FormEvent<HTMLFormElement>) => void
+  addSingleTraining: (event: FormEvent<HTMLFormElement>) => void
   bulkEventText: string
   canManageEvents: boolean
   categoryOptions: string[]
@@ -5197,15 +5533,16 @@ function EventsPage({
   createTrainingsConfirmed: () => Promise<void>
   deleteEvent: (eventId: string) => void
   eventAttendance: EventAttendance[]
-  eventModal: 'training' | 'match' | 'bulk' | 'edit' | null
+  eventModal: 'training' | 'single-training' | 'match' | 'bulk' | 'edit' | null
   events: CalendarEvent[]
   isCreatingTraining: boolean
   markEventAttendance: (eventId: string, student: Student, status: EventAttendanceStatus) => void
   matchForm: NewMatchForm
   saveBulkEvents: (event: FormEvent<HTMLFormElement>) => void
+  singleTrainingForm: SingleTrainingForm
   scopedStudents: Student[]
   selectedEventId: string
-  setEventModal: (value: 'training' | 'match' | 'bulk' | 'edit' | null) => void
+  setEventModal: (value: 'training' | 'single-training' | 'match' | 'bulk' | 'edit' | null) => void
   setSelectedEventId: (eventId: string) => void
   setBulkEventText: (value: string) => void
   setTrainingConfirmOpen: (value: boolean) => void
@@ -5214,6 +5551,7 @@ function EventsPage({
   trainingForm: NewTrainingForm
   updateEvent: (eventId: string, fields: Partial<Pick<CalendarEvent, 'title' | 'date' | 'time' | 'location' | 'opponent' | 'category' | 'endTime'>>) => void
   updateMatchForm: (field: keyof NewMatchForm, value: string) => void
+  updateSingleTrainingForm: (field: keyof SingleTrainingForm, value: string) => void
   updateTrainingForm: (field: keyof NewTrainingForm, value: string) => void
 }) {
   const [editForm, setEditForm] = useState<{ title: string; date: string; time: string; location: string; opponent: string; category: string }>({
@@ -5221,16 +5559,31 @@ function EventsPage({
   })
   const eventCategories = categoryOptions.filter((category) => category !== 'Todas')
   const availableCategories = eventCategories.length ? eventCategories : categoryOptions
+  const trainingCategories = useMemo(
+    () => ['Todas', ...categoryOptions.filter((category) => category !== 'Todas')],
+    [categoryOptions],
+  )
   useEffect(() => {
-    if (availableCategories.length && !availableCategories.includes(trainingForm.category)) {
-      updateTrainingForm('category', availableCategories[0])
+    if (trainingCategories.length && !trainingCategories.includes(trainingForm.category)) {
+      updateTrainingForm('category', trainingCategories[0])
     }
-  }, [availableCategories, trainingForm.category, updateTrainingForm])
+    if (trainingCategories.length && !trainingCategories.includes(singleTrainingForm.category)) {
+      updateSingleTrainingForm('category', trainingCategories[0])
+    }
+  }, [singleTrainingForm.category, trainingCategories, trainingForm.category, updateSingleTrainingForm, updateTrainingForm])
 
   const selectedEvent = events.find((event) => event.id === selectedEventId) ?? events[0]
   const eventRoster = selectedEvent
-    ? scopedStudents.filter((student) => selectedEvent.category === 'Todas' || student.category === selectedEvent.category)
+    ? scopedStudents
+        .filter((student) => selectedEvent.category === 'Todas' || categoriesMatch(student.category, selectedEvent.category))
+        .sort((a, b) => a.category.localeCompare(b.category, 'es') || a.name.localeCompare(b.name, 'es'))
     : []
+  const groupedEventRoster = eventRoster.reduce<Array<{ category: string; students: Student[] }>>((groups, student) => {
+    const group = groups.find((item) => item.category === student.category)
+    if (group) group.students.push(student)
+    else groups.push({ category: student.category, students: [student] })
+    return groups
+  }, [])
   const selectedActions = selectedEvent?.type === 'Partido' ? matchAttendanceActions : attendanceActions
   const eventStatusMap = new Map(
     eventAttendance
@@ -5272,6 +5625,19 @@ function EventsPage({
               </button>
               {canManageEvents && (
                 <div className="event-card-actions">
+                  {event.type === 'Entrenamiento' && (
+                    <button
+                      className="event-attendance-button"
+                      type="button"
+                      onClick={() => {
+                        setSelectedEventId(event.id)
+                        document.getElementById('event-attendance-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      }}
+                    >
+                      <ClipboardCheck size={15} aria-hidden="true" />
+                      Pasar asistencia
+                    </button>
+                  )}
                   <button
                     className="icon-button"
                     title="Editar evento"
@@ -5323,7 +5689,11 @@ function EventsPage({
             <div className="event-action-stack">
               <button className="primary-button" onClick={() => setEventModal('training')} type="button">
                 <CalendarCheck size={18} aria-hidden="true" />
-                Crear entrenamientos
+                Crear entrenamientos semanales
+              </button>
+              <button className="ghost-button" onClick={() => setEventModal('single-training')} type="button">
+                <Plus size={18} aria-hidden="true" />
+                Agregar un entrenamiento
               </button>
               <button className="ghost-button" onClick={() => setEventModal('match')} type="button">
                 <Trophy size={18} aria-hidden="true" />
@@ -5338,7 +5708,7 @@ function EventsPage({
         )}
       </aside>
 
-      <article className="panel wide-panel event-attendance-panel">
+      <article className="panel wide-panel event-attendance-panel" id="event-attendance-panel">
         <div className="panel-header">
           <div>
             <span className="panel-kicker">{selectedEvent?.type ?? 'Evento'}</span>
@@ -5370,36 +5740,43 @@ function EventsPage({
           </div>
         )}
 
-        <div className="event-roster">
-          {eventRoster.map((student) => {
-            const currentStatus = eventStatusMap.get(student.id) ?? 'Pendiente'
-            const availableActions = canConfirmAsStudent ? matchAttendanceActions : selectedActions
-
-            return (
-              <div className="event-roster-row" key={student.id}>
-                <PlayerAvatar player={student} />
-                <div>
-                  <strong>{student.name}</strong>
-                  <span>{student.category} - {student.position}</span>
-                </div>
-                <span className={`status ${getStatusClass(currentStatus)}`}>{currentStatus}</span>
-                {(canManageEvents || canConfirmAsStudent) && selectedEvent && (
-                  <div className="mark-actions">
-                    {availableActions.map((status) => (
-                      <button
-                        className={currentStatus === status ? 'active' : ''}
-                        key={status}
-                        onClick={() => markEventAttendance(selectedEvent.id, student, status)}
-                        type="button"
-                      >
-                        {status}
-                      </button>
-                    ))}
-                  </div>
-                )}
+        <div className="event-roster compact-event-roster">
+          {groupedEventRoster.map((group) => (
+            <section className="event-roster-group" key={group.category}>
+              <div className="event-roster-category">
+                <strong>{group.category}</strong>
+                <span>{group.students.length} alumnos</span>
               </div>
-            )
-          })}
+              {group.students.map((student) => {
+                const currentStatus = eventStatusMap.get(student.id) ?? 'Pendiente'
+                const availableActions = canConfirmAsStudent ? matchAttendanceActions : selectedActions
+
+                return (
+                  <div className="event-roster-row compact" key={student.id}>
+                    <div>
+                      <strong>{student.name}</strong>
+                      <span>{student.position}</span>
+                    </div>
+                    <span className={`status ${getStatusClass(currentStatus)}`}>{currentStatus}</span>
+                    {(canManageEvents || canConfirmAsStudent) && selectedEvent && (
+                      <div className="mark-actions">
+                        {availableActions.map((status) => (
+                          <button
+                            className={currentStatus === status ? 'active' : ''}
+                            key={status}
+                            onClick={() => markEventAttendance(selectedEvent.id, student, status)}
+                            type="button"
+                          >
+                            {status}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </section>
+          ))}
           {selectedEvent && !eventRoster.length && <p className="helper-text">No hay alumnos para la categoria de este evento.</p>}
           {!selectedEvent && <p className="helper-text">Crea o selecciona un evento para gestionar asistencia.</p>}
         </div>
@@ -5412,7 +5789,7 @@ function EventsPage({
               <div>
                 <span className="panel-kicker">Eventos</span>
                 <h2 id="event-modal-title">
-                  {eventModal === 'training' ? 'Crear entrenamientos' : eventModal === 'match' ? 'Crear partido' : eventModal === 'edit' ? 'Editar evento' : 'Carga masiva de eventos'}
+                  {eventModal === 'training' ? 'Crear entrenamientos semanales' : eventModal === 'single-training' ? 'Agregar entrenamiento' : eventModal === 'match' ? 'Crear partido' : eventModal === 'edit' ? 'Editar evento' : 'Carga masiva de eventos'}
                 </h2>
               </div>
               <button className="icon-button" onClick={() => setEventModal(null)} type="button" aria-label="Cerrar eventos">
@@ -5429,7 +5806,7 @@ function EventsPage({
                 <label className="form-field">
                   <span>Categoria</span>
                   <select onChange={(event) => updateTrainingForm('category', event.target.value)} value={trainingForm.category}>
-                    {availableCategories.map((category) => (
+                    {trainingCategories.map((category) => (
                       <option key={category}>{category}</option>
                     ))}
                   </select>
@@ -5467,6 +5844,44 @@ function EventsPage({
                   <button className="primary-button" type="submit" disabled={isCreatingTraining}>
                     <CalendarCheck size={18} aria-hidden="true" />
                     {isCreatingTraining ? 'Creando...' : 'Crear entrenamientos'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {eventModal === 'single-training' && (
+              <form className="event-form" onSubmit={addSingleTraining}>
+                <label className="form-field">
+                  <span>Fecha</span>
+                  <input onChange={(event) => updateSingleTrainingForm('date', event.target.value)} type="date" value={singleTrainingForm.date} />
+                </label>
+                <label className="form-field">
+                  <span>Categoria</span>
+                  <select onChange={(event) => updateSingleTrainingForm('category', event.target.value)} value={singleTrainingForm.category}>
+                    {trainingCategories.map((category) => (
+                      <option key={category}>{category}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="color-fields">
+                  <label className="form-field">
+                    <span>Hora</span>
+                    <input onChange={(event) => updateSingleTrainingForm('time', event.target.value)} type="time" value={singleTrainingForm.time} />
+                  </label>
+                  <label className="form-field">
+                    <span>Hasta</span>
+                    <input onChange={(event) => updateSingleTrainingForm('endTime', event.target.value)} type="time" value={singleTrainingForm.endTime} />
+                  </label>
+                </div>
+                <label className="form-field">
+                  <span>Cancha</span>
+                  <input onChange={(event) => updateSingleTrainingForm('location', event.target.value)} value={singleTrainingForm.location} />
+                </label>
+                <div className="modal-actions">
+                  <button className="ghost-button" onClick={() => setEventModal(null)} type="button">Cancelar</button>
+                  <button className="primary-button" type="submit">
+                    <Plus size={18} aria-hidden="true" />
+                    Agregar entrenamiento
                   </button>
                 </div>
               </form>
@@ -5527,14 +5942,14 @@ function EventsPage({
                   <textarea
                     className="bulk-textarea"
                     onChange={(event) => setBulkEventText(event.target.value)}
-                    placeholder="Entrenamiento;Entrenamiento Sub 8;Sub 8;2026-05-04;18:00;Cancha 1;&#10;Partido;Amistoso Sub 10;Sub 10;2026-05-11;10:00;Cancha principal;Rival FC"
+                    placeholder="Entrenamiento;Entrenamiento categoria;Categoria;2026-05-04;18:00;Cancha 1;&#10;Partido;Amistoso categoria;Categoria;2026-05-11;10:00;Cancha principal;Rival FC"
                     value={bulkEventText}
                   />
                 </label>
                 <div className="csv-example">
                   <span>Ejemplos</span>
-                  <code>Entrenamiento;Entrenamiento Sub 8;Sub 8;2026-05-04;18:00;Cancha 1;</code>
-                  <code>Partido;Amistoso Sub 10;Sub 10;2026-05-11;10:00;Cancha principal;Rival FC</code>
+                  <code>Entrenamiento;Entrenamiento categoria;Categoria;2026-05-04;18:00;Cancha 1;</code>
+                  <code>Partido;Amistoso categoria;Categoria;2026-05-11;10:00;Cancha principal;Rival FC</code>
                 </div>
                 <div className="modal-actions">
                   <button className="ghost-button" onClick={() => setEventModal(null)} type="button">
@@ -5689,16 +6104,20 @@ function EventsPage({
 }
 
 function ReportResultPanel({
+  compact = false,
   copyGeneratedReport,
   downloadGeneratedReport,
+  isExportingPdf,
   report,
 }: {
+  compact?: boolean
   copyGeneratedReport: () => void
   downloadGeneratedReport: () => void
+  isExportingPdf: boolean
   report: ReportResult
 }) {
   return (
-    <article className="report-result-card">
+    <article className="report-result-card printable-report">
       <div className="panel-header">
         <div>
           <span className="panel-kicker">Informe generado</span>
@@ -5719,8 +6138,8 @@ function ReportResultPanel({
         ))}
       </div>
 
-      <div className="report-row-list">
-        {report.rows.map((row, index) => (
+      {!compact && <div className="report-row-list">
+        {report.rows.slice(0, 12).map((row, index) => (
           <div className="report-row" key={`${row.label}-${index}`}>
             <div>
               <strong>{row.label}</strong>
@@ -5730,17 +6149,20 @@ function ReportResultPanel({
             {row.status && <span className={`status ${getStatusClass(row.status)}`}>{row.status}</span>}
           </div>
         ))}
+        {report.rows.length > 12 && <p className="helper-text">La vista previa muestra 12 de {report.rows.length} registros. El PDF incluye el detalle completo.</p>}
         {!report.rows.length && <p className="helper-text">No hay registros para los filtros seleccionados.</p>}
-      </div>
+      </div>}
+
+      {compact && <p className="helper-text">El PDF incluye el detalle completo de {report.rows.length} registros.</p>}
 
       <div className="report-actions">
         <button className="ghost-button" onClick={copyGeneratedReport} type="button">
           <FileText size={18} aria-hidden="true" />
           Copiar informe
         </button>
-        <button className="primary-button" onClick={downloadGeneratedReport} type="button">
+        <button className="primary-button" disabled={isExportingPdf} onClick={downloadGeneratedReport} type="button">
           <Download size={18} aria-hidden="true" />
-          Exportar Excel
+          {isExportingPdf ? 'Generando PDF...' : 'Exportar PDF'}
         </button>
       </div>
     </article>
@@ -5749,121 +6171,186 @@ function ReportResultPanel({
 
 function AttendancePage({
   attendanceRecords,
-  attendanceCategory,
-  attendanceForCategory,
   copyGeneratedReport,
   downloadGeneratedReport,
+  events,
   generatedReport,
   generateReport,
-  markAttendance,
-  markCategoryAsPresent,
+  isExportingPdf,
   reportCategory,
   reportDate,
+  saveTrainingAttendance,
   scopedCategories,
-  setAttendanceCategory,
+  scopedStudents,
   setReportCategory,
   setReportDate,
 }: {
   attendanceRecords: Attendance[]
-  attendanceCategory: string
-  attendanceForCategory: Attendance[]
   copyGeneratedReport: () => void
   downloadGeneratedReport: () => void
+  events: CalendarEvent[]
   generatedReport: ReportResult | null
   generateReport: (type: 'finanzas' | 'asistencia') => void
-  markAttendance: (id: number, status: AttendanceStatus) => void
-  markCategoryAsPresent: () => void
+  isExportingPdf: boolean
   reportCategory: string
   reportDate: string
+  saveTrainingAttendance: (training: CalendarEvent, statuses: Record<number, 'Presente' | 'Ausente'>) => boolean
   scopedCategories: Category[]
-  setAttendanceCategory: (value: string) => void
+  scopedStudents: Student[]
   setReportCategory: (value: string) => void
   setReportDate: (value: string) => void
 }) {
-  const presentCount = attendanceForCategory.filter((record) => record.status === 'Presente').length
-  const pendingCount = attendanceForCategory.filter((record) => record.status === 'Pendiente').length
+  const [attendanceTab, setAttendanceTab] = useState<'jornada' | 'reporte'>('jornada')
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const [attendanceDate, setAttendanceDate] = useState(today)
+  const [trainingCategory, setTrainingCategory] = useState('Todas')
+  const [openTraining, setOpenTraining] = useState<CalendarEvent | null>(null)
+  const [draftStatuses, setDraftStatuses] = useState<Record<number, 'Presente' | 'Ausente'>>({})
   const reportCategories = scopedCategories.length > 1 ? ['Todas', ...scopedCategories.map((category) => category.label)] : scopedCategories.map((category) => category.label)
   const attendanceReportRows = attendanceRecords.filter(
-    (record) => record.date === reportDate && (reportCategory === 'Todas' || record.category === reportCategory),
+    (record) => record.date === reportDate && (reportCategory === 'Todas' || categoriesMatch(record.category, reportCategory)),
   )
+  const trainingCategories = ['Todas', ...scopedCategories.map((category) => category.label)]
+  const dailyTrainings = events.filter(
+    (event) =>
+      event.type === 'Entrenamiento' &&
+      event.date === attendanceDate &&
+      (trainingCategory === 'Todas' || event.category === 'Todas' || categoriesMatch(event.category, trainingCategory)),
+  )
+  const trainingRoster = openTraining
+    ? scopedStudents
+        .filter((student) => openTraining.category === 'Todas' || categoriesMatch(student.category, openTraining.category))
+        .sort((a, b) => a.category.localeCompare(b.category, 'es') || a.name.localeCompare(b.name, 'es'))
+    : []
+  const groupedTrainingRoster = trainingRoster.reduce<Array<{ category: string; students: Student[] }>>((groups, student) => {
+    const group = groups.find((item) => item.category === student.category)
+    if (group) group.students.push(student)
+    else groups.push({ category: student.category, students: [student] })
+    return groups
+  }, [])
+  const completedDraft = trainingRoster.length > 0 && trainingRoster.every((student) => draftStatuses[student.id])
+  const dailyAttendanceRecords = attendanceRecords.filter(
+    (record) => record.date === attendanceDate && (trainingCategory === 'Todas' || categoriesMatch(record.category, trainingCategory)),
+  )
+  const dailyPresent = dailyAttendanceRecords.filter((record) => record.status === 'Presente').length
+  const dailyAbsent = dailyAttendanceRecords.filter((record) => record.status === 'Ausente').length
+  const dailyPending = dailyAttendanceRecords.filter((record) => record.status === 'Pendiente').length
+  const dailyAttendancePercentage = dailyAttendanceRecords.length ? Math.round((dailyPresent / dailyAttendanceRecords.length) * 100) : 0
+
+  function openAttendance(training: CalendarEvent) {
+    const existing: Record<number, 'Presente' | 'Ausente'> = {}
+    scopedStudents.filter((student) => training.category === 'Todas' || categoriesMatch(student.category, training.category)).forEach((student) => {
+      const record = attendanceRecords.find((item) => item.studentId === student.id && item.date === training.date)
+      if (record?.status === 'Presente' || record?.status === 'Ausente') existing[student.id] = record.status
+    })
+    setDraftStatuses(existing)
+    setOpenTraining(training)
+  }
 
   return (
     <section className="workspace-grid attendance-layout">
-      <article className="panel wide-panel">
+      <div className="page-tabs">
+        <SectionTabs
+          value={attendanceTab}
+          onChange={(value) => setAttendanceTab(value as typeof attendanceTab)}
+          tabs={[
+            { id: 'jornada', label: `Jornada y asistencia (${dailyTrainings.length})` },
+            { id: 'reporte', label: 'Reporte por fecha' },
+          ]}
+        />
+      </div>
+
+      {attendanceTab === 'jornada' && <article className="panel wide-panel">
         <div className="panel-header">
           <div>
-            <span className="panel-kicker">Clase actual</span>
-            <h2>{attendanceCategory} - Hoy 18:00</h2>
+            <span className="panel-kicker">Agenda diaria</span>
+            <h2>Entrenamientos del día</h2>
           </div>
-          <button className="primary-button" onClick={markCategoryAsPresent} type="button">
-            <CheckCircle2 size={18} aria-hidden="true" />
-            Todos presentes
-          </button>
+          <span className="count-pill">{dailyTrainings.length} entrenamientos</span>
         </div>
 
-        <div className="segmented category-tabs" aria-label="Elegir categoria">
-          {scopedCategories.map((category) => (
-            <button
-              className={attendanceCategory === category.label ? 'active' : ''}
-              key={category.label}
-              onClick={() => setAttendanceCategory(category.label)}
-              type="button"
-            >
-              {category.label}
+        <div className="attendance-schedule-filters">
+          <label className="form-field">
+            <span>Fecha</span>
+            <input
+              onChange={(event) => {
+                setAttendanceDate(event.target.value)
+                setReportDate(event.target.value)
+              }}
+              type="date"
+              value={attendanceDate}
+            />
+          </label>
+          <label className="form-field">
+            <span>Categoria</span>
+            <select onChange={(event) => setTrainingCategory(event.target.value)} value={trainingCategory}>
+              {trainingCategories.map((category) => <option key={category}>{category}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="attendance-stat-grid">
+          <div>
+            <span>Asistencia</span>
+            <strong>{dailyAttendancePercentage}%</strong>
+          </div>
+          <div>
+            <span>Presentes</span>
+            <strong>{dailyPresent}</strong>
+          </div>
+          <div>
+            <span>Ausentes</span>
+            <strong>{dailyAbsent}</strong>
+          </div>
+          <div>
+            <span>Pendientes</span>
+            <strong>{dailyPending}</strong>
+          </div>
+        </div>
+
+        <div className="attendance-training-list">
+          {dailyTrainings.map((training) => (
+            <button className="attendance-training-card" key={training.id} onClick={() => openAttendance(training)} type="button">
+              <div>
+                <span className="event-type training">Entrenamiento</span>
+                <strong>{training.category}</strong>
+                <small>{training.location}</small>
+              </div>
+              <div>
+                <b>{training.time}{training.endTime ? ` - ${training.endTime}` : ''}</b>
+                <span>Abrir asistencia</span>
+              </div>
             </button>
           ))}
+          {!dailyTrainings.length && <p className="helper-text">No hay entrenamientos programados para esta fecha y categoria.</p>}
         </div>
-
-        <div className="attendance-worklist">
-          {attendanceForCategory.map((student) => (
-            <div className="attendance-row" key={student.id}>
-              <div className="avatar">{student.name.slice(0, 1)}</div>
-              <div className="row-main">
-                <strong>{student.name}</strong>
-                <span>{student.time}</span>
-              </div>
-              <span className={`status ${getStatusClass(student.status)}`}>{student.status}</span>
-              <div className="mark-actions">
-                {attendanceActions.map((status) => (
-                  <button
-                    className={student.status === status ? 'active' : ''}
-                    key={status}
-                    onClick={() => markAttendance(student.id, status)}
-                    type="button"
-                  >
-                    {status}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </article>
+      </article>}
 
       <aside className="detail-column">
-        <article className="panel detail-panel">
-          <span className="panel-kicker">Resumen</span>
-          <h2>{attendanceCategory}</h2>
+        {attendanceTab === 'jornada' && <article className="panel detail-panel">
+          <span className="panel-kicker">Jornada seleccionada</span>
+          <h2>{formatEventDate(attendanceDate)}</h2>
           <div className="summary-stack">
             <div>
-              <CheckCircle2 size={18} aria-hidden="true" />
-              <span>Presentes</span>
-              <strong>{presentCount}</strong>
+              <CalendarCheck size={18} aria-hidden="true" />
+              <span>Entrenamientos</span>
+              <strong>{dailyTrainings.length}</strong>
             </div>
             <div>
-              <Clock3 size={18} aria-hidden="true" />
-              <span>Pendientes</span>
-              <strong>{pendingCount}</strong>
+              <Users size={18} aria-hidden="true" />
+              <span>Categorias</span>
+              <strong>{new Set(dailyTrainings.map((training) => training.category)).size}</strong>
             </div>
             <div>
-              <XCircle size={18} aria-hidden="true" />
-              <span>Total clase</span>
-              <strong>{attendanceForCategory.length}</strong>
+              <ClipboardCheck size={18} aria-hidden="true" />
+              <span>Filtro</span>
+              <strong>{trainingCategory}</strong>
             </div>
           </div>
-        </article>
+        </article>}
 
-        <article className="panel attendance-report-card">
+        {attendanceTab === 'reporte' && <article className="panel attendance-report-card">
           <div className="panel-header">
             <div>
               <span className="panel-kicker">Reporte profesor</span>
@@ -5889,13 +6376,6 @@ function AttendancePage({
               Generar reporte
             </button>
           </div>
-          {generatedReport?.kind === 'asistencia' && (
-            <ReportResultPanel
-              copyGeneratedReport={copyGeneratedReport}
-              downloadGeneratedReport={downloadGeneratedReport}
-              report={generatedReport}
-            />
-          )}
           <div className="attendance-report-list">
             {attendanceReportRows.map((record) => (
               <div className="attendance-report-row" key={record.id}>
@@ -5908,8 +6388,81 @@ function AttendancePage({
             ))}
             {!attendanceReportRows.length && <p className="helper-text">No hay registros para esta fecha.</p>}
           </div>
-        </article>
+        </article>}
       </aside>
+
+      {attendanceTab === 'reporte' && generatedReport?.kind === 'asistencia' && (
+        <div className="attendance-report-result">
+          <ReportResultPanel
+            compact
+            copyGeneratedReport={copyGeneratedReport}
+            downloadGeneratedReport={downloadGeneratedReport}
+            isExportingPdf={isExportingPdf}
+            report={generatedReport}
+          />
+        </div>
+      )}
+
+      {openTraining && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="student-modal attendance-modal" aria-labelledby="attendance-modal-title" role="dialog" aria-modal="true">
+            <div className="panel-header">
+              <div>
+                <span className="panel-kicker">Pasar asistencia</span>
+                <h2 id="attendance-modal-title">{openTraining.category}</h2>
+                <p>{formatEventDate(openTraining.date)} · {openTraining.time} · {openTraining.location}</p>
+              </div>
+              <button className="icon-button" onClick={() => setOpenTraining(null)} type="button" aria-label="Cerrar asistencia">
+                <XCircle size={20} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="attendance-modal-list">
+              {groupedTrainingRoster.map((group) => (
+                <section className="attendance-roster-group" key={group.category}>
+                  <div className="attendance-roster-category">
+                    <strong>{group.category}</strong>
+                    <span>{group.students.length} alumnos</span>
+                  </div>
+                  {group.students.map((student) => (
+                    <div className="attendance-modal-row compact" key={student.id}>
+                      <div className="row-main">
+                        <strong>{student.name}</strong>
+                      </div>
+                      <div className="attendance-binary-actions">
+                        {(['Presente', 'Ausente'] as const).map((status) => (
+                          <button
+                            className={`${status.toLowerCase()}${draftStatuses[student.id] === status ? ' active' : ''}`}
+                            key={status}
+                            onClick={() => setDraftStatuses((current) => ({ ...current, [student.id]: status }))}
+                            type="button"
+                          >
+                            {status}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              ))}
+              {!trainingRoster.length && <p className="helper-text">No hay alumnos registrados en esta categoria.</p>}
+            </div>
+            <div className="modal-actions">
+              <button className="ghost-button" onClick={() => setOpenTraining(null)} type="button">Cancelar</button>
+              <button
+                className="primary-button"
+                disabled={!completedDraft}
+                onClick={() => {
+                  if (saveTrainingAttendance(openTraining, draftStatuses)) setOpenTraining(null)
+                }}
+                type="button"
+              >
+                <CheckCircle2 size={18} aria-hidden="true" />
+                Ingresar asistencia
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   )
 }
@@ -6023,6 +6576,7 @@ function FinancePage({
   financeStatusFilter,
   generatedReport,
   generateReport,
+  isExportingPdf,
   markPayment,
   payments,
   preparePaymentMessage,
@@ -6039,6 +6593,7 @@ function FinancePage({
   financeStatusFilter: PaymentStatus | 'Todos'
   generatedReport: ReportResult | null
   generateReport: (type: 'finanzas' | 'asistencia') => void
+  isExportingPdf: boolean
   markPayment: (id: number, status: PaymentStatus) => void
   payments: Payment[]
   preparePaymentMessage: (payment: Payment) => void
@@ -6048,6 +6603,7 @@ function FinancePage({
   setReportCategory: (category: string) => void
   setReportDate: (date: string) => void
 }) {
+  const [financeTab, setFinanceTab] = useState<'pagos' | 'reportes'>('pagos')
   const paidPayments = payments.filter((payment) => payment.status === 'Pagado')
   const pendingPayments = payments.filter((payment) => payment.status !== 'Pagado')
   const filteredPayments =
@@ -6090,7 +6646,16 @@ function FinancePage({
         </article>
       </section>
 
-      <section className="finance-reports panel">
+      <SectionTabs
+        value={financeTab}
+        onChange={(value) => setFinanceTab(value as typeof financeTab)}
+        tabs={[
+          { id: 'pagos', label: `Mensualidades (${payments.length})` },
+          { id: 'reportes', label: 'Generar reportes' },
+        ]}
+      />
+
+      {financeTab === 'reportes' && <section className="finance-reports panel">
         <div className="panel-header">
           <div>
             <span className="panel-kicker">Informes</span>
@@ -6124,12 +6689,13 @@ function FinancePage({
           <ReportResultPanel
             copyGeneratedReport={copyGeneratedReport}
             downloadGeneratedReport={downloadGeneratedReport}
+            isExportingPdf={isExportingPdf}
             report={generatedReport}
           />
         )}
-      </section>
+      </section>}
 
-      <section className="workspace-grid finance-layout">
+      {financeTab === 'pagos' && <section className="workspace-grid finance-layout">
         <article className="panel wide-panel">
           <div className="panel-header">
             <div>
@@ -6201,7 +6767,7 @@ function FinancePage({
             {!reportAttendance.length && <p className="helper-text">No hay asistencia para esta fecha/categoria.</p>}
           </div>
         </aside>
-      </section>
+      </section>}
     </section>
   )
 }
@@ -6209,6 +6775,8 @@ function FinancePage({
 function BalancePage({
   addExpense,
   addIncome,
+  deleteExpense,
+  deleteIncome,
   expenses,
   incomes,
   markExpense,
@@ -6223,6 +6791,8 @@ function BalancePage({
 }: {
   addExpense: (event: FormEvent<HTMLFormElement>) => void
   addIncome: (event: FormEvent<HTMLFormElement>) => void
+  deleteExpense: (id: number) => void
+  deleteIncome: (id: number) => void
   expenses: Expense[]
   incomes: Income[]
   markExpense: (id: number, status: Expense['status']) => void
@@ -6251,23 +6821,24 @@ function BalancePage({
   const result = paidIncome + manualIncome - paidExpenses
 
   const [balanceTab, setBalanceTab] = useState<'registrar' | 'mensualidades' | 'ingresos' | 'egresos'>('registrar')
+  const [movementType, setMovementType] = useState<'ingreso' | 'egreso'>('ingreso')
 
   return (
     <section className="balance-page">
-      <section className="finance-grid">
-        <article className="panel finance-card">
+      <section className="finance-grid balance-summary-grid">
+        <article className="panel finance-card balance-summary-card">
           <CircleDollarSign size={20} aria-hidden="true" />
           <span>Ingresos cobrados</span>
           <strong>{formatCurrency(paidIncome + manualIncome)}</strong>
           <p>{payments.filter((payment) => payment.status === 'Pagado').length} pagos + {incomes.filter((income) => income.status === 'Recibido').length} ingresos</p>
         </article>
-        <article className="panel finance-card">
+        <article className="panel finance-card balance-summary-card">
           <HandCoins size={20} aria-hidden="true" />
           <span>Gastos pagados</span>
           <strong>{formatCurrency(paidExpenses)}</strong>
           <p>{formatCurrency(pendingExpenses)} pendientes por pagar</p>
         </article>
-        <article className="panel finance-card">
+        <article className="panel finance-card balance-summary-card">
           <BarChart3 size={20} aria-hidden="true" />
           <span>Resultado mensual</span>
           <strong>{formatCurrency(result)}</strong>
@@ -6295,8 +6866,16 @@ function BalancePage({
             <p>Registra ingresos o egresos y adjunta una boleta o comprobante si lo necesitas.</p>
           </div>
         </div>
-        <div className="movement-forms">
-          <form className="movement-form income-form" onSubmit={addIncome}>
+        <SectionTabs
+          value={movementType}
+          onChange={(value) => setMovementType(value as typeof movementType)}
+          tabs={[
+            { id: 'ingreso', label: 'Registrar ingreso' },
+            { id: 'egreso', label: 'Registrar egreso' },
+          ]}
+        />
+        <div className="movement-forms single-form">
+          {movementType === 'ingreso' && <form className="movement-form income-form" onSubmit={addIncome}>
             <div className="movement-form-title">
               <CircleDollarSign size={19} aria-hidden="true" />
               <strong>Ingreso</strong>
@@ -6357,9 +6936,9 @@ function BalancePage({
               <Plus size={18} aria-hidden="true" />
               Agregar ingreso
             </button>
-          </form>
+          </form>}
 
-          <form className="movement-form expense-form" onSubmit={addExpense}>
+          {movementType === 'egreso' && <form className="movement-form expense-form" onSubmit={addExpense}>
             <div className="movement-form-title">
               <HandCoins size={19} aria-hidden="true" />
               <strong>Egreso</strong>
@@ -6420,7 +6999,7 @@ function BalancePage({
               <Plus size={18} aria-hidden="true" />
               Agregar egreso
             </button>
-          </form>
+          </form>}
         </div>
       </article>
       )}
@@ -6481,6 +7060,10 @@ function BalancePage({
                     {status}
                   </button>
                 ))}
+                <button className="movement-delete-button" onClick={() => deleteIncome(income.id)} type="button">
+                  <Trash2 size={14} aria-hidden="true" />
+                  Eliminar
+                </button>
               </div>
             </article>
           ))}
@@ -6513,6 +7096,10 @@ function BalancePage({
                     {status}
                   </button>
                 ))}
+                <button className="movement-delete-button" onClick={() => deleteExpense(expense.id)} type="button">
+                  <Trash2 size={14} aria-hidden="true" />
+                  Eliminar
+                </button>
               </div>
             </article>
           ))}
